@@ -13,6 +13,8 @@ from mako.template import Template
 from bcbio.broad import runner_from_config
 from bcbio.broad.metrics import PicardMetrics, PicardMetricsParser
 from bcbio import utils
+from bcbio.solexa.run_configuration import IlluminaConfiguration
+
 
 
 # ## High level functions to generate summary PDF
@@ -84,6 +86,61 @@ def _update_summary_table(summary_table, ref_file, fastqc_stats):
     summary_table.insert(0, ("Reference organism",
         ref_org.replace("_", " "), ""))
     return summary_table
+
+
+# ## Generate project level QC summary for quickly assessing large projects
+
+def write_project_summary(samples):
+    """Write project summary information on the provided samples.
+    """
+    def _nocommas(x):
+        return x.replace(",", "")
+
+    def _percent(x):
+        return x.replace("(", "").replace(")", "").replace("\\", "")
+    out_file = os.path.join(samples[0][0]["dirs"]["work"], "project-summary.csv")
+    sample_info = _get_sample_summaries(samples)
+    header = ["Total", "Aligned", "Pair duplicates", "Insert size",
+              "On target bases", "Mean target coverage", "10x coverage targets",
+              "Zero coverage targets", "Total variations", "In dbSNP",
+              "Transition/Transversion (all)", "Transition/Transversion (dbSNP)",
+              "Transition/Transversion (novel)"]
+    select = [(0, _nocommas), (1, _percent), (1, _percent), (0, None),
+              (1, _percent), (0, None), (0, _percent),
+              (0, _percent), (0, None), (0, _percent),
+              (0, None), (0, None), (0, None)]
+    rows = [["Sample"] + header]
+    for name, info in sample_info:
+        cur = [name]
+        for col, (i, prep_fn) in zip(header, select):
+            val = info.get(col, ["", ""])[i]
+            if prep_fn and val:
+                val = prep_fn(val)
+            cur.append(val)
+        rows.append(cur)
+    with open(out_file, "w") as out_handle:
+        writer = csv.writer(out_handle)
+        for row in rows:
+            writer.writerow(row)
+
+
+def _get_sample_summaries(samples):
+    """Retrieve high level summary information for each sample.
+    """
+    out = []
+    with utils.curdir_tmpdir() as tmp_dir:
+        for sample in (x[0] for x in samples):
+            is_paired = sample.get("fastq2", None) not in ["", None]
+            _, summary, _ = _graphs_and_summary(sample["work_bam"], sample["sam_ref"],
+                                            is_paired, tmp_dir, sample["config"])
+            sample_info = {}
+            for xs in summary:
+                n = xs[0]
+                if n is not None:
+                    sample_info[n] = xs[1:]
+            sample_name = ";".join([x for x in sample["name"] if x])
+            out.append((sample_name, sample_info))
+    return out
 
 
 # ## Run and parse read information from FastQC
@@ -175,6 +232,29 @@ def _run_fastqc(bam_file, config):
         os.remove("%s.zip" % fastqc_out)
     return fastqc_out
 
+def _run_fastq_screen(fastq1, fastq2, config):
+    """ Runs fastq_screen on a subset of a fastq file
+    """
+    out_base = "fastq_screen"
+    utils.safe_makedir(out_base)
+    program = config.get("program", {}).get("fastq_screen", "fastq_screen")
+
+    if fastq2 is not None:
+        if os.path.exists(fastq2):
+        # paired end
+            cl = [program, "--outdir", out_base, "--subset", "2000000", \
+            "--multilib", fastq1, "--paired", fastq2]
+        else:
+            cl = [program, "--outdir", out_base, "--subset", "2000000", \
+            "--multilib", fastq1]
+    else:
+        cl = [program, "--outdir", out_base, "--subset", "2000000", \
+        "--multilib", fastq1]
+
+    if config["algorithm"].get("quality_format","").lower() == 'illumina':
+        cl.insert(1,"--illumina")
+         
+    subprocess.check_call(cl)
 
 def _run_fastq_screen(fastq1, fastq2, config):
     """ Runs fastq_screen on a subset of a fastq file
@@ -230,7 +310,8 @@ def summary_metrics(run_info, analysis_dir, fc_name, fc_date, fastq_dir):
     tab_out = []
     lane_info = []
     sample_info = []
-    for run in run_info["details"]:
+    for lane_xs in run_info["details"]:
+        run = lane_xs[0]
         tab_out.append([run["lane"], run.get("researcher", ""),
             run.get("name", ""), run.get("description")])
         base_info = dict(
@@ -242,17 +323,16 @@ def summary_metrics(run_info, analysis_dir, fc_name, fc_date, fastq_dir):
         cur_lane_info["metrics"] = _bustard_stats(run["lane"], fastq_dir,
                                                   fc_date, analysis_dir)
         lane_info.append(cur_lane_info)
-        for barcode in run.get("multiplex", [None]):
+        for lane_x in lane_xs:
             cur_name = "%s_%s_%s" % (run["lane"], fc_date, fc_name)
-            if barcode:
-                cur_name = "%s_%s-" % (cur_name, barcode["barcode_id"])
+            if lane_x["barcode_id"]:
+                cur_name = "%s_%s-" % (cur_name, lane_x["barcode_id"])
             stats = _metrics_from_stats(_lane_stats(cur_name, analysis_dir))
             if stats:
                 cur_run_info = copy.deepcopy(base_info)
                 cur_run_info["metrics"] = stats
-                cur_run_info["barcode_id"] = str(barcode["barcode_id"]) if barcode else ""
-                cur_run_info["barcode_type"] = (str(barcode.get("barcode_type", ""))
-                                                if barcode else "")
+                cur_run_info["barcode_id"] = str(lane_x["barcode_id"])
+                cur_run_info["barcode_type"] = str(lane_x.get("barcode_type", ""))
                 sample_info.append(cur_run_info)
     return lane_info, sample_info, tab_out
 
@@ -268,7 +348,7 @@ def _metrics_from_stats(stats):
                 )
         metrics = dict()
         for stat_name, metric_name in s_to_m.iteritems():
-            metrics[metric_name] = stats[stat_name]
+            metrics[metric_name] = stats.get(stat_name, 0)
         return metrics
 
 def _bustard_stats(lane_num, fastq_dir, fc_date, analysis_dir):
@@ -316,6 +396,93 @@ def _lane_stats(cur_name, work_dir):
     metrics_files = glob.glob(os.path.join(work_dir, "%s*metrics" % cur_name))
     metrics = parser.extract_metrics(metrics_files)
     return metrics
+
+
+# Parser for the RTA-generated quality-metrics
+class RTAQCMetrics:
+    
+    def __init__(self, base_dir):
+        self._dir = base_dir
+        self._configuration = IlluminaConfiguration(base_dir)
+        self._metrics_path = os.path.join(base_dir,"Data","reports","Summary")
+        assert os.path.exists(self._metrics_path), "The RTA QC metrics folder %s does not exist" % self._metrics_path
+        
+        # Assert that the readN.xml qc metrics files exist
+        self._metric_files = []
+        for read in self._configuration.reads().keys():
+            qc_file = os.path.join(self._metrics_path,"read%s.xml" % read)
+            assert os.path.exists(qc_file), "The RTA QC metrics file %s does not exist" % qc_file
+            self._metric_files.append(qc_file)
+        
+        # Parse the XML files
+        self.readSummaries()
+         
+    @staticmethod
+    def metrics():
+        return [
+                ['error_rate', 'ErrRatePhiX', False],
+                ['error_rate_sd', 'ErrRatePhiXSD', False],
+                ['raw_cluster_dens', 'ClustersRaw', True],
+                ['raw_cluster_dens_sd', 'ClustersRawSD', True],
+                ['prc_cluster_pf', 'PrcPFClusters', False],
+                ['prc_cluster_pf_sd', 'PrcPFClustersSD', False],
+                ['pf_cluster_dens', 'ClustersPF', True],
+                ['pf_cluster_dens_sd', 'ClustersPFSD', True],
+                ['phasing', 'Phasing', False],
+                ['prephasing', 'Prephasing', False],
+                ['prc_aligned', 'PrcAlign', False],
+                ['prc_aligned_sd', 'PrcAlignSD', False]
+            ]
+    
+    def configuration(self):
+        return self._configuration
+    
+    # getQCstats() is probably the method you usually want to call
+    def getQCstats(self):
+        qc_stats = {}
+        for metric in self.metrics():
+            qc_stats[metric[0]] = self.getAllLaneMetrics(metric[1],metric[2])
+        return qc_stats
+
+    def readSummaries(self):
+        self._qc_roots = {}
+        for qc_file in self._metric_files:
+            tree = ET.parse(qc_file)
+            root = tree.getroot()
+            if root is not None:
+                read = root.get("Read","0")
+                self._qc_roots[read] = root
+
+    def getAllSingleLaneMetric(self, metric, lane, clu_dens = False):
+        metrics = {}
+        for read, root in self._qc_roots.items():
+            metrics["read%s" % read] = self.getSingleLaneMetric(root, metric, lane, clu_dens)
+        return metrics
+
+    def getSingleLaneMetric(self, root, metric, lane, clu_dens = False):
+        m = self.getLaneMetric(root, metric, clu_dens, lane)
+        return m[lane]
+    
+    def getAllLaneMetrics(self, metric, clu_dens):
+        metrics = {}
+        for read, root in self._qc_roots.items():
+            metrics["read%s" % read] = self.getLaneMetric(root, metric, clu_dens)
+        return metrics
+
+    def getLaneMetric(self, root, metric, clu_dens, lane=None):
+        if clu_dens: densRatio = float(root.get("densityRatio"))
+        lanes = root.findall("Lane")    
+        m = {}
+        for l in lanes:
+            k = l.get("key")
+            if lane is not None and k != str(lane):
+                continue
+            val = float(l.get(metric))
+            m[k] = val
+            if clu_dens: 
+                m[k] = str(int(round((densRatio * val)/1000))) + 'K'
+        return m
+
 
 # ## LaTeX templates for output PDF
 
