@@ -3,7 +3,7 @@ python:
     - 2.7
 install:
     - lsb_release -a
-    - sudo apt-get install picard-tools
+    - sudo apt-get install picard-tools bwa bowtie
     - sudo pip install numpy
     - cd nextgen && python setup.py install
 script:
