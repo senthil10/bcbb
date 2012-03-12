@@ -3,9 +3,9 @@ python:
     - 2.7
 install:
     - lsb_release -a
-    - sudo add-apt-repository ppa:nebc/galaxy
+    - sudo add-apt-repository ppa:brainstorm/galaxy
     - sudo apt-get update
-    - sudo apt-get install picard-tools bwa bowtie
+    - sudo apt-get install snpeff picard-tools bwa bowtie
     - sudo pip install numpy
     - cd nextgen && python setup.py install
 script:
