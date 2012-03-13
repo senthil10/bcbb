@@ -5,7 +5,7 @@ program:
   tophat: tophat
   cufflinks: cufflinks
   ucsc_bigwig: wigToBigWig
-  picard: /usr/share/java/picard
+  picard: /usr/share/java
   gatk: /usr/share/java/gatk
   snpEff: /usr/share/java/snpeff
   fastqc: fastqc
