@@ -25,8 +25,8 @@ def generate_align_summary(bam_file, is_paired, sam_ref, sample_name,
     with utils.chdir(dirs["work"]):
         with utils.curdir_tmpdir() as tmp_dir:
             graphs, summary, overrep = \
-                    _graphs_and_summary(bam_file, sam_ref, is_paired,
-                                        tmp_dir, config)
+            _graphs_and_summary(bam_file, sam_ref, is_paired, tmp_dir, config)
+
         return _generate_pdf(graphs, summary, overrep, bam_file, sample_name,
                              dirs, config)
 
@@ -35,13 +35,22 @@ def screen_for_contamination(fastq1, fastq2, config):
     _run_fastq_screen(fastq1, fastq2, config)
 
 
+def _safe_latex(to_fix):
+    """Escape characters that make LaTeX unhappy.
+    """
+    chars = ["%", "_", "&", "#"]
+    for char in chars:
+        to_fix = to_fix.replace(char, "\\%s" % char)
+    return to_fix
+
+
 def _generate_pdf(graphs, summary, overrep, bam_file, sample_name,
                   dirs, config):
     base = os.path.splitext(os.path.basename(bam_file))[0]
     sample_name = base if sample_name is None else " : ".join(sample_name)
     tmpl = Template(_section_template)
-    sample_name = "%s (%s)" % (sample_name.replace("_", "\_"),
-                               base.replace("_", "\_"))
+    sample_name = "%s (%s)" % (_safe_latex(sample_name),
+                               _safe_latex(base))
     recal_plots = sorted(glob.glob(os.path.join(dirs["work"], "reports", "images",
                                                 "%s*-plot.pdf" % base)))
     section = tmpl.render(name=sample_name, summary=None,
@@ -81,9 +90,11 @@ def _update_summary_table(summary_table, ref_file, fastqc_stats):
             "%sbp %s" % (fastqc_stats.get("Sequence length", "0"), summary_table[0][-1]))
     for stat in stats_want:
         summary_table.insert(0, (stat, fastqc_stats.get(stat, ""), ""))
+
     ref_org = os.path.splitext(os.path.split(ref_file)[-1])[0]
     summary_table.insert(0, ("Reference organism",
         ref_org.replace("_", " "), ""))
+
     return summary_table
 
 
@@ -120,8 +131,10 @@ def write_project_summary(samples):
             val = info.get(col, ["", ""])[i]
             if prep_fn and val:
                 val = prep_fn(val)
+
             cur.append(val)
         rows.append(cur)
+
     with open(out_file, "w") as out_handle:
         writer = csv.writer(out_handle)
         for row in rows:
@@ -142,12 +155,14 @@ def _get_sample_summaries(samples):
                 n = xs[0]
                 if n is not None:
                     sample_info[n] = xs[1:]
+
             sample_name = ";".join([x for x in sample["name"] if x])
             out.append((sample_name, sample_info))
+
     return out
 
 
-# ## Run and parse read information from FastQC
+# Run and parse read information from FastQC
 
 def fastqc_report(bam_file, config):
     """Calculate statistics about a read using FastQC.
@@ -157,6 +172,7 @@ def fastqc_report(bam_file, config):
     graphs = parser.get_fastqc_graphs()
     stats, overrep = parser.get_fastqc_summary()
     return graphs, stats, overrep
+
 
 class FastQCParser:
     def __init__(self, base_dir):
@@ -179,11 +195,11 @@ class FastQCParser:
     def get_fastqc_summary(self):
         stats = {}
         for stat_line in self._fastqc_data_section("Basic Statistics")[1:]:
-            k, v = [self._safe_latex(x) for x in stat_line.split("\t")[:2]]
+            k, v = [_safe_latex(x) for x in stat_line.split("\t")[:2]]
             stats[k] = v
         over_rep = []
         for line in self._fastqc_data_section("Overrepresented sequences")[1:]:
-            parts = [self._safe_latex(x) for x in line.split("\t")]
+            parts = [_safe_latex(x) for x in line.split("\t")]
             over_rep.append(parts)
             over_rep[-1][0] = self._splitseq(over_rep[-1][0])
         return stats, over_rep[:self._max_overrep]
@@ -214,14 +230,6 @@ class FastQCParser:
                         out.append(line.rstrip("\r\n"))
         return out
 
-    def _safe_latex(self, to_fix):
-        """Escape characters that make LaTeX unhappy.
-        """
-        chars = ["%", "_", "&"]
-        for char in chars:
-            to_fix = to_fix.replace(char, "\\%s" % char)
-        return to_fix
-
 
 def _run_fastqc(bam_file, config):
     out_base = "fastqc"
@@ -232,33 +240,12 @@ def _run_fastqc(bam_file, config):
         cl = [config.get("program", {}).get("fastqc", "fastqc"),
               "-o", out_base, "-f", "bam", bam_file]
         subprocess.check_call(cl)
+
     if os.path.exists("%s.zip" % fastqc_out):
         os.remove("%s.zip" % fastqc_out)
+
     return fastqc_out
 
-def _run_fastq_screen(fastq1, fastq2, config):
-    """ Runs fastq_screen on a subset of a fastq file
-    """
-    out_base = "fastq_screen"
-    utils.safe_makedir(out_base)
-    program = config.get("program", {}).get("fastq_screen", "fastq_screen")
-
-    if fastq2 is not None:
-        if os.path.exists(fastq2):
-        # paired end
-            cl = [program, "--outdir", out_base, "--subset", "2000000", \
-            "--multilib", fastq1, "--paired", fastq2]
-        else:
-            cl = [program, "--outdir", out_base, "--subset", "2000000", \
-            "--multilib", fastq1]
-    else:
-        cl = [program, "--outdir", out_base, "--subset", "2000000", \
-        "--multilib", fastq1]
-
-    if config["algorithm"].get("quality_format","").lower() == 'illumina':
-        cl.insert(1,"--illumina")
-         
-    subprocess.check_call(cl)
 
 def _run_fastq_screen(fastq1, fastq2, config):
     """ Runs fastq_screen on a subset of a fastq file
@@ -279,9 +266,9 @@ def _run_fastq_screen(fastq1, fastq2, config):
         cl = [program, "--outdir", out_base, "--subset", "2000000", \
         "--multilib", fastq1]
 
-    if config["algorithm"].get("quality_format","").lower() == 'illumina':
-        cl.insert(1,"--illumina")
-         
+    if config["algorithm"].get("quality_format", "").lower() == 'illumina':
+        cl.insert(1, "--illumina")
+
     subprocess.check_call(cl)
 
 
@@ -296,17 +283,21 @@ def write_metrics(run_info, fc_name, fc_date, dirs):
     with open(out_file, "w") as out_handle:
         metrics = dict(lanes=lane_stats, samples=sample_stats)
         yaml.dump(metrics, out_handle, default_flow_style=False)
+
     tab_out_file = os.path.join(dirs["flowcell"], "run_summary.tsv")
     try:
         with open(tab_out_file, "w") as out_handle:
             writer = csv.writer(out_handle, dialect="excel-tab")
             for info in tab_metrics:
                 writer.writerow(info)
+
     # If on NFS mounted directory can fail due to filesystem or permissions
     # errors. That's okay, we'll just not write the file.
     except IOError:
         pass
+
     return out_file
+
 
 def summary_metrics(run_info, analysis_dir, fc_name, fc_date, fastq_dir):
     """Reformat run and analysis statistics into a YAML-ready format.
@@ -319,10 +310,10 @@ def summary_metrics(run_info, analysis_dir, fc_name, fc_date, fastq_dir):
         tab_out.append([run["lane"], run.get("researcher", ""),
             run.get("name", ""), run.get("description")])
         base_info = dict(
-                researcher = run.get("researcher_id", ""),
-                sample = run.get("sample_id", ""),
-                lane = run["lane"],
-                request = run_info["run_id"])
+                researcher=run.get("researcher_id", ""),
+                sample=run.get("sample_id", ""),
+                lane=run["lane"],
+                request=run_info["run_id"])
         cur_lane_info = copy.deepcopy(base_info)
         cur_lane_info["metrics"] = _bustard_stats(run["lane"], fastq_dir,
                                                   fc_date, analysis_dir)

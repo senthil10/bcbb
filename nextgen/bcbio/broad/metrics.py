@@ -6,10 +6,11 @@ import json
 import contextlib
 import pprint
 
-from bcbio.utils import tmpfile, file_exists
+from bcbio.utils import tmpfile, file_exists, save_diskspace
 from bcbio.distributed.transaction import file_transaction
 
 import pysam
+
 
 class PicardMetricsParser:
     """Read metrics files produced by Picard analyses.
@@ -26,12 +27,15 @@ class PicardMetricsParser:
         """
         with open(align_metrics) as in_handle:
             align_vals = self._parse_align_metrics(in_handle)
+
         with open(dup_metrics) as in_handle:
             dup_vals = self._parse_dup_metrics(in_handle)
+
         (insert_vals, hybrid_vals) = (None, None)
         if insert_metrics and os.path.exists(insert_metrics):
             with open(insert_metrics) as in_handle:
                 insert_vals = self._parse_insert_metrics(in_handle)
+
         if hybrid_metrics and os.path.exists(hybrid_metrics):
             with open(hybrid_metrics) as in_handle:
                 hybrid_vals = self._parse_hybrid_metrics(in_handle)
@@ -43,10 +47,10 @@ class PicardMetricsParser:
         """Return summary information for a lane of metrics files.
         """
         extension_maps = dict(
-                align_metrics = (self._parse_align_metrics, "AL"),
-                dup_metrics = (self._parse_dup_metrics, "DUP"),
-                hs_metrics = (self._parse_hybrid_metrics, "HS"),
-                insert_metrics = (self._parse_insert_metrics, "INS"),
+                align_metrics=(self._parse_align_metrics, "AL"),
+                dup_metrics=(self._parse_dup_metrics, "DUP"),
+                hs_metrics=(self._parse_hybrid_metrics, "HS"),
+                insert_metrics=(self._parse_insert_metrics, "INS"),
                 )
         all_metrics = dict()
         for fname in metrics_files:
@@ -61,6 +65,7 @@ class PicardMetricsParser:
                         if not key.startswith(prefix):
                             key = "%s_%s" % (prefix, key)
                         all_metrics[key] = val
+
         return all_metrics
 
     def _tabularize_metrics(self, align_vals, dup_vals, insert_vals,
@@ -68,7 +73,6 @@ class PicardMetricsParser:
         out = []
         # handle high level alignment for paired values
         paired = insert_vals is not None
-
 
         total = align_vals["TOTAL_READS"]
         dup_total = int(dup_vals["READ_PAIRS_EXAMINED"])
@@ -112,25 +116,37 @@ class PicardMetricsParser:
 
     def _tabularize_hybrid(self, hybrid_vals):
         out = []
+
+        def try_float_format(in_string, float_format, multiplier=1.):
+            in_string = in_string.replace(",", ".")
+            try:
+                out_string = float_format % (float(in_string) * multiplier)
+            except ValueError:
+                out_string = in_string
+
+            return out_string
+
         total = hybrid_vals["PF_UQ_BASES_ALIGNED"]
+
         out.append(self._count_percent("On bait bases",
             hybrid_vals["ON_BAIT_BASES"], total))
         out.append(self._count_percent("Near bait bases",
             hybrid_vals["NEAR_BAIT_BASES"], total))
         out.append(self._count_percent("Off bait bases",
             hybrid_vals["OFF_BAIT_BASES"], total))
-        out.append(("Mean bait coverage", "%.1f" %
-            float(hybrid_vals["MEAN_BAIT_COVERAGE"]), ""))
+        out.append(("Mean bait coverage", "%s" %
+            try_float_format(hybrid_vals["MEAN_BAIT_COVERAGE"], "%.1f"), ""))
         out.append(self._count_percent("On target bases",
             hybrid_vals["ON_TARGET_BASES"], total))
-        out.append(("Mean target coverage", "%dx" %
-            float(hybrid_vals["MEAN_TARGET_COVERAGE"]), ""))
-        out.append(("10x coverage targets", "%.1f\%%" %
-            (float(hybrid_vals["PCT_TARGET_BASES_10X"]) * 100.0), ""))
-        out.append(("Zero coverage targets", "%.1f\%%" %
-            (float(hybrid_vals["ZERO_CVG_TARGETS_PCT"]) * 100.0), ""))
-        out.append(("Fold enrichment", "%dx" %
-            float(hybrid_vals["FOLD_ENRICHMENT"]), ""))
+        out.append(("Mean target coverage", "%sx" %
+            try_float_format(hybrid_vals["MEAN_TARGET_COVERAGE"], "%d"), ""))
+        out.append(("10x coverage targets", "%s\%%" %
+            try_float_format(hybrid_vals["PCT_TARGET_BASES_10X"], "%.1f", 100.0), ""))
+        out.append(("Zero coverage targets", "%s\%%" %
+            try_float_format(hybrid_vals["ZERO_CVG_TARGETS_PCT"], "%.1f", 100.0), ""))
+        out.append(("Fold enrichment", "%sx" %
+            try_float_format(hybrid_vals["FOLD_ENRICHMENT"], "%d"), ""))
+
         return out
 
     def _count_percent(self, text, count, total):
@@ -217,6 +233,7 @@ class PicardMetricsParser:
                 break
         return in_handle.readline().rstrip("\n").split("\t")
 
+
 class PicardMetrics:
     """Run reports using Picard, returning parsed metrics and files.
     """
@@ -236,9 +253,11 @@ class PicardMetrics:
         insert_graph, insert_metrics, hybrid_metrics = (None, None, None)
         if is_paired:
             insert_graph, insert_metrics = self._insert_sizes(dup_bam)
+
         if bait_file and target_file:
             hybrid_metrics = self._hybrid_select_metrics(
                     dup_bam, bait_file, target_file)
+
         vrn_vals = self._variant_eval_metrics(dup_bam)
         summary_info = self._parser.get_summary_metrics(align_metrics,
                 dup_metrics, insert_metrics, hybrid_metrics,
@@ -247,8 +266,17 @@ class PicardMetrics:
         graphs = []
         if gc_graph and os.path.exists(gc_graph):
             graphs.append((gc_graph, "Distribution of GC content across reads"))
+
         if insert_graph and os.path.exists(insert_graph):
             graphs.append((insert_graph, "Distribution of paired end insert sizes"))
+
+        # Attempt to clean up potential waste of space
+        if dup_bam != align_bam:
+            config = self._picard._config
+            reason = "Picard MarkDuplicates file {} only needed for metrics " \
+            "and has been removed to save space".format(dup_bam)
+            save_diskspace(dup_bam, reason, config)
+
         return summary_info, graphs
 
     def _get_current_dup_metrics(self, align_bam):
@@ -258,8 +286,11 @@ class PicardMetrics:
         if dup_fname_pos > 0:
             base_name = align_bam[:dup_fname_pos]
             metrics = glob.glob("{0}*.dup_metrics".format(base_name))
-            assert len(metrics) > 0, "Appear to have deduplication but did not find metrics file"
+            assert len(metrics) > 0, \
+            "Appear to have deduplication but did not find metrics file"
+
             return align_bam, metrics[0]
+
         else:
             return self._picard.run_fn("picard_mark_duplicates", align_bam)
 
@@ -272,11 +303,13 @@ class PicardMetrics:
             can_glob = False
         except ValueError:
             can_glob = True
+
         check_fname = "{base}{maybe_glob}.{ext}".format(
             base=base, maybe_glob="*" if can_glob else "", ext=metrics_ext)
         glob_fnames = glob.glob(check_fname)
         if len(glob_fnames) > 0:
             return glob_fnames[0]
+
         else:
             return "{base}.{ext}".format(base=base, ext=metrics_ext)
 
@@ -293,6 +326,7 @@ class PicardMetrics:
                                 ("INPUT", dup_bam),
                                 ("OUTPUT", tx_metrics)]
                         self._picard.run("CalculateHsMetrics", opts)
+
         return metrics
 
     def _variant_eval_metrics(self, dup_bam):
@@ -347,13 +381,17 @@ class PicardMetrics:
                 self._picard.run("CollectAlignmentSummaryMetrics", opts)
         return align_metrics
 
+
 def _add_commas(s, sep=','):
     """Add commas to output counts.
 
     From: http://code.activestate.com/recipes/498181
     """
-    if len(s) <= 3: return s
+    if len(s) <= 3:
+        return s
+
     return _add_commas(s[:-3], sep) + sep + s[-3:]
+
 
 @contextlib.contextmanager
 def bed_to_interval(orig_bed, bam_file):
