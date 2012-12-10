@@ -40,8 +40,7 @@ def _organize_lanes(info_iter, barcode_ids):
                               name=sample_id,
                               sample_prj=sample_proj,
                               description="{}_{}".format(sample_proj,sample_id),
-                              genome_build=sample_ref.lower(),
-                              genomes_filter_out="phix")
+                              genome_build=sample_ref.lower())
                 multiplex.append(bc_dict)
             cur_lane["multiplex"] = multiplex
 
@@ -81,7 +80,6 @@ def _read_input_csv(in_file):
             
             dialect = csv.excel
             reader = csv.DictReader(in_handle, dialect=dialect)
-            # No need to skip header with csv.sniffer
             for line in reader:
                 if line:  # skip empty lines
                     # convert '__' to '.'
