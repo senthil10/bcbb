@@ -12,14 +12,14 @@ from bcbio.broad import picardrun
 class BroadRunner:
     """Simplify running Broad commandline tools.
     """
-    def __init__(self, picard_dir, gatk_dir="", max_memory=None,
+    def __init__(self, picard_ref, gatk_dir="", max_memory=None,
                  config=None):
         self._memory_args = []
         if not max_memory:
             max_memory = "6g"
         self._memory_args.append("-Xmx%s" % max_memory)
-        self._picard_dir = picard_dir
-        self._gatk_dir = gatk_dir or picard_dir
+        self._picard_ref = picard_ref
+        self._gatk_dir = gatk_dir or picard_ref
         if config is None:
             config = {}
         self._config = config
@@ -48,8 +48,7 @@ class BroadRunner:
         """
         options = ["%s=%s" % (x, y) for x, y in options]
         options.append("VALIDATION_STRINGENCY=SILENT")
-        dist_file = self._get_jar(command)
-        cl = ["java"] + self._memory_args + ["-jar", dist_file] + options
+        cl = self._get_picard_cmd(command) + options
         subprocess.check_call(cl)
 
     def run_gatk(self, params, tmp_dir=None):
@@ -74,11 +73,28 @@ class BroadRunner:
                 ["-jar", gatk_jar] + [str(x) for x in params]
         subprocess.check_call(cl)
 
+    def get_picard_version(self, command):
+        cl = self._get_picard_cmd(command) + ["--version"]
+        p = subprocess.Popen(cl, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        version = float(p.stdout.read().split("(")[0])
+        p.wait()
+        return version
+
+    def _get_picard_cmd(self, command):
+        """Retrieve the base Picard command, handling both shell scripts and directory of jars.
+        """
+        if os.path.isdir(self._picard_ref):
+            dist_file = self._get_jar(command)
+            return ["java"] + self._memory_args + ["-jar", dist_file]
+        else:
+            # XXX Cannot currently set JVM opts with picard-tools script
+            return [self._picard_ref, command]
+
     def _get_jar(self, command):
         """Retrieve the jar for running the specified command.
         """
         dirs = []
-        for bdir in [self._picard_dir, self._gatk_dir]:
+        for bdir in [self._picard_ref, self._gatk_dir]:
             dirs.extend([bdir,
                          os.path.join(bdir, os.pardir, "gatk"),
                          os.path.join(bdir, "dist"),
@@ -91,11 +107,11 @@ class BroadRunner:
             if os.path.exists(check_file):
                 return check_file
 
-        raise ValueError("Could not find jar %s in %s" % (command, self._picard_dir))
+        raise ValueError("Could not find jar %s in %s:%s" % (command, self._picard_ref, self._gatk_dir))
 
 
 def runner_from_config(config):
-    return BroadRunner(config["program"]["picard"],
+    return BroadRunner(config["program"].get("picard", ""),
                        config["program"].get("gatk", ""),
                        max_memory=config["algorithm"].get("java_memory", ""),
                        config=config)
