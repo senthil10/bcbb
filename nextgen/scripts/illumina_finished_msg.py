@@ -32,6 +32,7 @@ from optparse import OptionParser
 import xml.etree.ElementTree as ET
 import re
 import csv
+from shutil import copyfile
 
 import logbook
 
@@ -90,10 +91,23 @@ def search_for_new(*args, **kwargs):
 def initial_processing(*args, **kwargs):
     """Initial processing to be performed after the first base report
     """
-    dname = args[0]
+    dname, config = args[0:2]
     # Touch the indicator flag that processing of read1 has been started
     utils.touch_indicator_file(os.path.join(dname, "initial_processing_started.txt"))
 
+    # Copy the samplesheet to the run folder
+    ss_file = samplesheet.run_has_samplesheet(dname, config)
+    if ss_file:
+        dst = os.path.join(dname,os.path.basename(ss_file))
+        try:
+            copyfile(ss_file,dst)
+        except IOError, e:
+            logger2.error("Error copying samplesheet {} from {} to {}: {}" \
+                          "".format(os.path.basename(ss_file),
+                                    os.path.dirname(ss_file),
+                                    os.path.dirname(dst),
+                                    e))
+            
     # Upload the necessary files
     loc_args = args + (None, )
     _post_process_run(*loc_args, **{"fetch_msg": True,
@@ -325,7 +339,26 @@ def simple_upload(remote_info, data):
          ])
 
     subprocess.check_call(cl)
-
+    
+    logdir = remote_info.get("log_dir",os.getcwd())
+    rsync_out = os.path.join(logdir,"rsync_transfer.out")
+    rsync_err = os.path.join(logdir,"rsync_transfer.err")
+    ro = open(rsync_out, 'a')
+    re = open(rsync_err, 'a')
+    try:
+        ro.write("-----------\n{}\n".format(" ".join(cl)))
+        re.write("-----------\n{}\n".format(" ".join(cl)))
+        subprocess.check_call(cl, stdout=ro, stderr=re)
+    except subprocess.CalledProcessError, e:
+        logger2.error("rsync transfer of {} FAILED with (exit code {}). " \
+                      "Please check log files {:s} and {:s}".format(data["directory"],
+                                                                    str(e.returncode),
+                                                                    rsync_out,
+                                                                    rsync_err))
+        raise e
+    finally:
+        ro.close()
+        re.close()
 
 def analyze_locally(dname, post_config_file, fastq_dir):
     """Run analysis directly on the local machine.
@@ -406,9 +439,9 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
         co = open(configure_out, 'w')
         ce = open(configure_err, 'w')
         try:
+            co.write("{}\n".format(" ".join(cl)))
+            ce.write("{}\n".format(" ".join(cl)))
             subprocess.check_call(cl, stdout=co, stderr=ce)
-            co.close()
-            ce.close()
         except subprocess.CalledProcessError, e:
             logger2.error("Configuring BCL to Fastq conversion for {:s} FAILED " \
                           "(exit code {}), please check log files {:s}, {:s}".format(fc_dir,
@@ -416,6 +449,10 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
                                                                                      configure_out,
                                                                                      configure_err))
             raise e
+        finally:
+            co.close()
+            ce.close()
+            
 
     # Go to <Unaligned> folder
     with utils.chdir(unaligned_dir):
@@ -430,9 +467,9 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
         co = open(casava_out, 'w')
         ce = open(casava_err, 'w')
         try:
+            co.write("{}\n".format(" ".join(cl)))
+            ce.write("{}\n".format(" ".join(cl)))
             subprocess.check_call(cl, stdout=co, stderr=ce)
-            co.close()
-            ce.close()
         except subprocess.CalledProcessError, e:
             logger2.error("BCL to Fastq conversion for {:s} FAILED " \
                           "(exit code {}), please check log files {:s}, "\
@@ -441,6 +478,9 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
                                         casava_out,
                                         casava_err))
             raise e
+        finally:
+            co.close()
+            ce.close()
 
     logger2.debug("Done")
     return unaligned_dir
@@ -735,8 +775,8 @@ def _files_to_copy(directory):
                          glob.glob("Data/Intensities/BaseCalls/*.xml"),
                          glob.glob("Data/Intensities/BaseCalls/*.xsl"),
                          glob.glob("Data/Intensities/BaseCalls/*.htm"),
-                         glob.glob("Unaligned/Basecall_Stats_*/*"),
-                         glob.glob("Unalgiend/Basecall_Stats_*/**/*"),
+                         glob.glob("Unaligned*/Basecall_Stats_*/*"),
+                         glob.glob("Unalgiend*/Basecall_Stats_*/**/*"),
                          ["Data/Intensities/BaseCalls/Plots", "Data/reports",
                           "Data/Status.htm", "Data/Status_Files", "InterOp"]
                         ])
@@ -744,8 +784,8 @@ def _files_to_copy(directory):
         run_info = reduce(operator.add,
                         [glob.glob("run_info.yaml"),
                          glob.glob("*.csv"),
-                         glob.glob("Unaligned/Project_*/**/*.csv"),
-                         glob.glob("Unaligned/Undetermined_indices/**/*.csv"),
+                         glob.glob("Unaligned*/Project_*/**/*.csv"),
+                         glob.glob("Unaligned*/Undetermined_indices/**/*.csv"),
                          glob.glob("*.txt"),
                          glob.glob("*.err"),
                          glob.glob("*.out"),
@@ -755,8 +795,8 @@ def _files_to_copy(directory):
 
         fastq = reduce(operator.add,
                         [glob.glob("Data/Intensities/BaseCalls/*fastq.gz"),
-                         glob.glob("Unaligned/Project_*/**/*.fastq.gz"),
-                         glob.glob("Unaligned/Undetermined_indices/**/*.fastq.gz"),
+                         glob.glob("Unaligned*/Project_*/**/*.fastq.gz"),
+                         glob.glob("Unaligned*/Undetermined_indices/**/*.fastq.gz"),
                          ["Data/Intensities/BaseCalls/fastq"]
                         ])
 
