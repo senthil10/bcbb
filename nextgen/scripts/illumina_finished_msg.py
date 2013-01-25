@@ -925,6 +925,8 @@ if __name__ == "__main__":
               "compress_fastq": options.compress_fastq, \
               "casava": options.casava, \
               "push_data": options.push_data, \
+              "post_process_only": options.post_process_only, \
+              "run_id": options.run_id, \
               "no_casava_processing": options.no_casava_processing}
 
     main(*args, **kwargs)
