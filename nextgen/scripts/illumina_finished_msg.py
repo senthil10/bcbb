@@ -878,26 +878,26 @@ if __name__ == "__main__":
     parser = OptionParser()
     parser.add_option("-b", "--backup", dest="backup_msg",
             action="store_true", default=False)
-    parser.add_option("-d", "--nofetch", dest="fetch_msg",
-            action="store_false", default=True)
-    parser.add_option("-p", "--noprocess", dest="process_msg",
-            action="store_false", default=True)
-    parser.add_option("-s", "--nostore", dest="store_msg",
-            action="store_false", default=True)
-    parser.add_option("-f", "--nofastq", dest="fastq",
-            action="store_false", default=True)
+    parser.add_option("-d", "--fetch", dest="fetch_msg",
+            action="store_true", default=False)
+    parser.add_option("-p", "--process", dest="process_msg",
+            action="store_true", default=False)
+    parser.add_option("-s", "--store", dest="store_msg",
+            action="store_true", default=False)
+    parser.add_option("-f", "--fastq", dest="fastq",
+            action="store_true", default=False)
     parser.add_option("-z", "--compress-fastq", dest="compress_fastq",
             action="store_true", default=False)
-    parser.add_option("-q", "--noqseq", dest="qseq",
-            action="store_false", default=True)
-    parser.add_option("-c", "--casava", dest="casava",
+    parser.add_option("-q", "--qseq", dest="qseq",
             action="store_true", default=False)
+    parser.add_option("-c", "--pre-casava", dest="casava",
+            action="store_false", default=True)
     parser.add_option("-r", "--remove-qseq", dest="remove_qseq",
             action="store_true", default=False)
     parser.add_option("-m", "--miseq", dest="miseq",
             action="store_true", default=False)
-    parser.add_option("--push_data", dest="push_data",
-            action="store_true", default=False)
+    parser.add_option("--pull_data", dest="push_data",
+            action="store_false", default=True)
     parser.add_option("--post-process-only", dest="post_process_only",
             action="store_true", default=False)
     parser.add_option("--run-id", dest="run_id",
