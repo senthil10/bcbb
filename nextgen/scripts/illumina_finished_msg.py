@@ -311,8 +311,10 @@ def simple_upload(remote_info, data):
     """
     include = []
     for fcopy in data['to_copy']:
-        include.extend(["--include", "{}**/*".format(fcopy)])
-        include.append("--include={}".format(fcopy))
+        if os.path.isdir(fcopy):
+            include.append("--include", "{}**/*".format(fcopy))
+        elif os.path.isfile(fcopy):
+            include.append("--include={}".format(fcopy))
         # By including both these patterns we get the entire directory
         # if a directory is given, or a single file if a single file is
         # given.
@@ -337,8 +339,6 @@ def simple_upload(remote_info, data):
           # target
           "{store_user}@{store_host}:{store_dir}".format(**remote_info)
          ])
-
-    subprocess.check_call(cl)
     
     logdir = remote_info.get("log_dir",os.getcwd())
     rsync_out = os.path.join(logdir,"rsync_transfer.out")
