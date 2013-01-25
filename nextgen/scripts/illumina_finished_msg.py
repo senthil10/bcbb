@@ -67,8 +67,8 @@ def search_for_new(*args, **kwargs):
         # Only process a directory if it isn't listed in the transfer db or if it was specifically requested
         # on the command line
         if os.path.isdir(dname) and \
-        ((len(kwargs.get("run_id","")) == 0 and not any(dir.startswith(dname) for dir in reported)) or \
-         kwargs.get("run_id","") == os.path.basename(dname)):
+        ((kwargs.get("run_id",None) is None and not any(dir.startswith(dname) for dir in reported)) or \
+         kwargs.get("run_id",None) == os.path.basename(dname)):
         
             # Injects run_name on logging calls.
             # Convenient for run_name on "Subject" for email notifications
