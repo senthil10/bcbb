@@ -77,7 +77,7 @@ def search_for_new(*args, **kwargs):
 
             with logbook.Processor(run_setter):
                 if kwargs.get("post_process_only",False):
-                    loc_args = (dname) + args + (None, )
+                    loc_args = (dname, ) + args + (None, )
                     _post_process_run(*loc_args, **kwargs)
                     continue
                 if _do_initial_processing(dname):
@@ -354,6 +354,8 @@ def simple_upload(remote_info, data):
     try:
         ro.write("-----------\n{}\n".format(" ".join(cl)))
         re.write("-----------\n{}\n".format(" ".join(cl)))
+        ro.flush()
+        re.flush()
         subprocess.check_call(cl, stdout=ro, stderr=re)
     except subprocess.CalledProcessError, e:
         logger2.error("rsync transfer of {} FAILED with (exit code {}). " \
