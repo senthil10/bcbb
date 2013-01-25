@@ -32,6 +32,7 @@ from optparse import OptionParser
 import xml.etree.ElementTree as ET
 import re
 import csv
+from shutil import copyfile
 
 import logbook
 
@@ -45,16 +46,17 @@ from bcbio.pipeline.config_loader import load_config
 LOG_NAME = os.path.splitext(os.path.basename(__file__))[0]
 log = logbook.Logger(LOG_NAME)
 
+
 def main(*args, **kwargs):
     local_config = args[0]
     post_process_config = args[1] if len(args) > 1 else None
+    kwargs["post_process_config"] = post_process_config
     config = load_config(local_config)
+
     log_handler = create_log_handler(config, True)
     with log_handler.applicationbound():
-        search_for_new(config, 
-                       local_config, 
-                       post_process_config, 
-                       **kwargs)
+        search_for_new(config, local_config, **kwargs)
+
 
 def search_for_new(*args, **kwargs):
     """Search for any new unreported directories.
@@ -62,151 +64,185 @@ def search_for_new(*args, **kwargs):
     config = args[0]
     reported = _read_reported(config["msg_db"])
     for dname in _get_directories(config):
-        if os.path.isdir(dname) and not any(dir.startswith(dname) for dir in reported):
+        # Only process a directory if it isn't listed in the transfer db or if it was specifically requested
+        # on the command line
+        if os.path.isdir(dname) and \
+        ((kwargs.get("run_id",None) is None and not any(dir.startswith(dname) for dir in reported)) or \
+         kwargs.get("run_id",None) == os.path.basename(dname)):
+        
             # Injects run_name on logging calls.
             # Convenient for run_name on "Subject" for email notifications
-            run_setter = lambda record: record.extra.__setitem__('run', os.path.basename(dname))
+            def run_setter(record):
+                return record.extra.__setitem__('run', os.path.basename(dname))
+
             with logbook.Processor(run_setter):
+                if kwargs.get("post_process_only",False):
+                    loc_args = (dname, ) + args + (None, )
+                    _post_process_run(*loc_args, **kwargs)
+                    continue
                 if _do_initial_processing(dname):
                     initial_processing(dname, *args, **kwargs)
+
                 elif _do_first_read_processing(dname):
                     process_first_read(dname, *args, **kwargs)
+
                 elif _do_second_read_processing(dname):
                     process_second_read(dname, *args, **kwargs)
                 else:
                     pass
-                                
+
                 # Re-read the reported database to make sure it hasn't
                 # changed while processing.
                 reported = _read_reported(config["msg_db"])
 
+
 def initial_processing(*args, **kwargs):
     """Initial processing to be performed after the first base report
     """
-    
-    dname = args[0]
+    dname, config = args[0:2]
     # Touch the indicator flag that processing of read1 has been started
-    utils.touch_indicator_file(os.path.join(dname,"initial_processing_started.txt"))
-    
+    utils.touch_indicator_file(os.path.join(dname, "initial_processing_started.txt"))
+
+    # Copy the samplesheet to the run folder
+    ss_file = samplesheet.run_has_samplesheet(dname, config)
+    if ss_file:
+        dst = os.path.join(dname,os.path.basename(ss_file))
+        try:
+            copyfile(ss_file,dst)
+        except IOError, e:
+            logger2.error("Error copying samplesheet {} from {} to {}: {}" \
+                          "".format(os.path.basename(ss_file),
+                                    os.path.dirname(ss_file),
+                                    os.path.dirname(dst),
+                                    e))
+            
     # Upload the necessary files
     loc_args = args + (None, )
-    #import pdb; pdb.set_trace()
-    _post_process_run(*loc_args, **{"fetch_msg": True,
+    _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
                                     "process_msg": False,
-                                    "store_msg": kwargs.get("store_msg",False),
-                                    "backup_msg": False})
-    
+                                    "store_msg": kwargs.get("store_msg", False),
+                                    "backup_msg": kwargs.get("backup_msg", False),
+                                    "push_data": kwargs.get("push_data", False)})
+
     # Touch the indicator flag that processing of read1 has been completed
-    utils.touch_indicator_file(os.path.join(dname,"initial_processing_completed.txt"))
+    utils.touch_indicator_file(os.path.join(dname, "initial_processing_completed.txt"))
+
 
 def process_first_read(*args, **kwargs):
     """Processing to be performed after the first read and the index reads
     have been sequenced
     """
-    
     dname, config = args[0:2]
     # Do bcl -> fastq conversion and demultiplexing using Casava1.8+
-    if kwargs.get("casava",False):
-        logger2.info("Generating fastq.gz files for read 1 of {:s}".format(dname))
-        
-        # Touch the indicator flag that processing of read1 has been started
-        utils.touch_indicator_file(os.path.join(dname,"first_read_processing_started.txt"))
-        unaligned_dir = _generate_fastq_with_casava(dname, config, r1=True)
-        logger2.info("Done generating fastq.gz files for read 1 of {:s}".format(dname))
-        
-        # Extract the top barcodes from the undemultiplexed fraction
-        if config["program"].get("extract_barcodes",None):
-            extract_top_undetermined_indexes(dname,
-                                             unaligned_dir,
-                                             config)
-            
+    if kwargs.get("casava", False):
+        if not kwargs.get("no_casava_processing", False):
+            logger2.info("Generating fastq.gz files for read 1 of {:s}".format(dname))
+
+            # Touch the indicator flag that processing of read1 has been started
+            utils.touch_indicator_file(os.path.join(dname, "first_read_processing_started.txt"))
+            unaligned_dir = _generate_fastq_with_casava(dname, config, r1=True)
+            logger2.info("Done generating fastq.gz files for read 1 of {:s}".format(dname))
+
+            # Extract the top barcodes from the undemultiplexed fraction
+            if config["program"].get("extract_barcodes", None):
+                extract_top_undetermined_indexes(dname, unaligned_dir, config)
+
+        unaligned_dir = os.path.join(dname, "Unaligned")
         loc_args = args + (unaligned_dir,)
-        _post_process_run(*loc_args, **{"fetch_msg": True,
+        _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
                                         "process_msg": False,
-                                        "store_msg": kwargs.get("store_msg",False),
-                                        "backup_msg": False})
-        
+                                        "store_msg": kwargs.get("store_msg", False),
+                                        "backup_msg": kwargs.get("backup_msg", False),
+                                        "push_data": kwargs.get("push_data", False)})
+
         # Touch the indicator flag that processing of read1 has been completed
-        utils.touch_indicator_file(os.path.join(dname,"first_read_processing_completed.txt"))
-        
+        utils.touch_indicator_file(os.path.join(dname, "first_read_processing_completed.txt"))
+
+
 def process_second_read(*args, **kwargs):
     """Processing to be performed after all reads have been sequences
     """
     dname, config = args[0:2]
     logger2.info("The instrument has finished dumping on directory %s" % dname)
-    
-    utils.touch_indicator_file(os.path.join(dname,"second_read_processing_started.txt"))
+
+    utils.touch_indicator_file(os.path.join(dname, "second_read_processing_started.txt"))
     _update_reported(config["msg_db"], dname)
     fastq_dir = None
-    
+
     # Do bcl -> fastq conversion and demultiplexing using Casava1.8+
-    if kwargs.get("casava",False):
-        logger2.info("Generating fastq.gz files for {:s}".format(dname))
-        _generate_fastq_with_casava(dname, config)
+    if kwargs.get("casava", False):
+        if not kwargs.get("no_casava_processing", False):
+            logger2.info("Generating fastq.gz files for {:s}".format(dname))
+            _generate_fastq_with_casava(dname, config)
+
     else:
         _process_samplesheets(dname, config)
-        if kwargs.get("qseq",True):
+        if kwargs.get("qseq", True):
             logger2.info("Generating qseq files for {:s}".format(dname))
             _generate_qseq(get_qseq_dir(dname), config)
-            
-        if kwargs.get("fastq",True):
+
+        if kwargs.get("fastq", True):
             logger2.info("Generating fastq files for {:s}".format(dname))
             fastq_dir = _generate_fastq(dname, config)
-            if kwargs.get("remove_qseq",False):
+            if kwargs.get("remove_qseq", False):
                 _clean_qseq(get_qseq_dir(dname), fastq_dir)
+
             _calculate_md5(fastq_dir)
-            
+
     # Call the post_processing method
     loc_args = args + (fastq_dir,)
-    _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg",True),
-                                    "process_msg": kwargs.get("process_msg",True),
-                                    "store_msg": kwargs.get("store_msg",True),
-                                    "backup_msg": kwargs.get("backup_msg",False)})
+    _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
+                                    "process_msg": kwargs.get("process_msg", False),
+                                    "store_msg": kwargs.get("store_msg", False),
+                                    "backup_msg": kwargs.get("backup_msg", False),
+                                    "push_data": kwargs.get("push_data", False)})
 
     # Update the reported database after successful processing
     _update_reported(config["msg_db"], dname)
-    utils.touch_indicator_file(os.path.join(dname,"second_read_processing_completed.txt"))
+    utils.touch_indicator_file(os.path.join(dname, "second_read_processing_completed.txt"))
+
 
 def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
     """Extract the top N=25 barcodes from the undetermined indices output
     """
-    
     infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*", "*_R1_*.fastq.gz")
     infiles = glob.glob(infile_glob)
-    
-    # Only run as many simultaneous processes as number of cores specified in config        
+
+    # Only run as many simultaneous processes as number of cores specified in config
     procs = []
     num_cores = config["algorithm"].get("num_cores", 1)
-    
-    # Iterate over the infiles and process each one        
+
+    # Iterate over the infiles and process each one
     while len(infiles) > 0:
         # Wait one minute if we are already using the maximum amount of cores
         if len([p for p in procs if p[0].poll() is None]) == num_cores:
             time.sleep(60)
+
         else:
             infile = infiles.pop()
             fname = os.path.basename(infile)
-    
+
             # Parse the lane number from the filename
-            m = re.search(r'_L0*(\d+)_',fname)
+            m = re.search(r'_L0*(\d+)_', fname)
             if len(m.groups()) == 0:
-                raise ValueError("Could not determine lane from filename {:s}".format(fname)) 
+                raise ValueError("Could not determine lane from filename {:s}".format(fname))
+
             lane = m.group(1)
-            
+
             # Open a subprocess for the extraction, writing output and errors to a metric file
             logger2.info("Extracting top indexes from lane {:s}".format(lane))
-            metricfile = os.path.join(fc_dir,fname.replace("fastq.gz",
-                                                           "undetermined_indices_metrics"))
-            fh = open(metricfile,"w")
+            metricfile = os.path.join(fc_dir, fname.replace("fastq.gz",
+                                                            "undetermined_indices_metrics"))
+            fh = open(metricfile, "w")
             cl = [config["program"]["extract_barcodes"], infile, lane,
                   '--nindex', 10]
-            p = subprocess.Popen([str(c) for c in cl],stdout=fh,stderr=fh)
-            procs.append([p,fh,metricfile])
-    
+            p = subprocess.Popen([str(c) for c in cl], stdout=fh, stderr=fh)
+            procs.append([p, fh, metricfile])
+
     # Wait until all running processes have finished
     while len([p for p in procs if p[0].poll() is None]) > 0:
         time.sleep(60)
-    
+
     # Parse all metricfiles into one list of dicts
     logger2.info("Merging lane metrics into one flowcell metric")
     metrics = []
@@ -214,7 +250,7 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
     for p in procs:
         # Close the filehandle
         p[1].close()
-        
+
         # Parse the output into a dict using a DictReader
         with open(p[2]) as fh:
             c = csv.DictReader(fh, dialect=csv.excel_tab)
@@ -223,26 +259,44 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
                 metrics.append(row)
         # Remove the metricfile
         os.unlink(p[2])
-    
+
     # Write the metrics to one output file
-    metricfile = os.path.join(fc_dir,"Unaligned","Basecall_Stats_{}".format(fc_dir.split("_")[-1][1:]),"Undemultiplexed_stats.metrics")
-    with open(metricfile,"w") as fh:
-        w = csv.DictWriter(fh,fieldnames=header,dialect=csv.excel_tab)
+    metricfile = os.path.join(fc_dir, "Unaligned", "Basecall_Stats_{}".format(fc_dir.split("_")[-1][1:]), "Undemultiplexed_stats.metrics")
+    with open(metricfile, "w") as fh:
+        w = csv.DictWriter(fh, fieldnames=header, dialect=csv.excel_tab)
         w.writeheader()
         w.writerows(metrics)
-    
+
     logger2.info("Undemultiplexed metrics written to {:s}".format(metricfile))
     return metricfile
 
-def _post_process_run(dname, config, config_file, post_config_file, fastq_dir,
-                      fetch_msg, process_msg, store_msg, backup_msg):
+
+def _post_process_run(dname, config, config_file, fastq_dir, **kwargs):
     """With a finished directory, send out message or process directly.
     """
-    run_module = "bcbio.distributed.tasks"
+    post_config_file = kwargs.get("post_config_file", None)
+
     # without a configuration file, send out message for processing
     if post_config_file is None:
+        push_data = kwargs.get("push_data", False)
+        fetch_msg = kwargs.get("fetch_msg", False)
+        process_msg = kwargs.get("process_msg", False)
+        store_msg = kwargs.get("store_msg", False)
+        backup_msg = kwargs.get("backup_msg", False)
+
+        run_module = "bcbio.distributed.tasks"
         store_files, process_files, backup_files = _files_to_copy(dname)
-        if process_msg:
+
+        if push_data:
+            data = {"directory": dname, "to_copy": process_files}
+            simple_upload(config, data)
+
+        if push_data and process_msg:
+            config["pushed"] = True
+            finished_message("analyze", run_module, dname,
+                             process_files, config, config_file, pushed=True)
+
+        if process_msg and not push_data:
             finished_message("analyze_and_upload", run_module, dname,
                              process_files, config, config_file)
         elif fetch_msg:
@@ -255,10 +309,65 @@ def _post_process_run(dname, config, config_file, post_config_file, fastq_dir,
         if backup_msg:
             finished_message("backup_data", run_module, dname,
                              backup_files, config, config_file)
+
     # otherwise process locally
     else:
         analyze_locally(dname, post_config_file, fastq_dir)
 
+
+def simple_upload(remote_info, data):
+    """Upload generated files to specified host using rsync
+    """
+    include = []
+    for fcopy in data['to_copy']:
+        include.extend(["--include", "{}**/*".format(fcopy)])
+        include.append("--include={}".format(fcopy))
+        # By including both these patterns we get the entire directory
+        # if a directory is given, or a single file if a single file is
+        # given.
+
+    cl = ["rsync", \
+          "--checksum", \
+          "--archive", \
+          "--partial", \
+          "--progress", \
+          "--prune-empty-dirs"
+          ]
+
+    # file / dir inclusion specification
+    cl.extend(["--include", "*/"])
+    cl.extend(include)
+    cl.extend(["--exclude", "*"])
+
+    # source and target
+    cl.extend([
+          # source
+          data["directory"], \
+          # target
+          "{store_user}@{store_host}:{store_dir}".format(**remote_info)
+         ])
+    
+    logdir = remote_info.get("log_dir",os.getcwd())
+    rsync_out = os.path.join(logdir,"rsync_transfer.out")
+    rsync_err = os.path.join(logdir,"rsync_transfer.err")
+    ro = open(rsync_out, 'a')
+    re = open(rsync_err, 'a')
+    try:
+        ro.write("-----------\n{}\n".format(" ".join(cl)))
+        re.write("-----------\n{}\n".format(" ".join(cl)))
+        ro.flush()
+        re.flush()
+        subprocess.check_call(cl, stdout=ro, stderr=re)
+    except subprocess.CalledProcessError, e:
+        logger2.error("rsync transfer of {} FAILED with (exit code {}). " \
+                      "Please check log files {:s} and {:s}".format(data["directory"],
+                                                                    str(e.returncode),
+                                                                    rsync_out,
+                                                                    rsync_err))
+        raise e
+    finally:
+        ro.close()
+        re.close()
 
 def analyze_locally(dname, post_config_file, fastq_dir):
     """Run analysis directly on the local machine.
@@ -300,26 +409,33 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
     samplesheet_file = samplesheet.run_has_samplesheet(fc_dir, config)
     num_mismatches = config["algorithm"].get("mismatches", 1)
     num_cores = config["algorithm"].get("num_cores", 1)
-    im_stats = config["algorithm"].get("ignore-missing-stats",False)
-    im_bcl = config["algorithm"].get("ignore-missing-bcl",False)
-    im_control = config["algorithm"].get("ignore-missing-control",False)
-    
+    im_stats = config["algorithm"].get("ignore-missing-stats", False)
+    im_bcl = config["algorithm"].get("ignore-missing-bcl", False)
+    im_control = config["algorithm"].get("ignore-missing-control", False)
+
     # Write to log files
-    configure_out = os.path.join(fc_dir,"configureBclToFastq.out")
-    configure_err = os.path.join(fc_dir,"configureBclToFastq.err")
-    casava_out = os.path.join(fc_dir,"bclToFastq_R{:d}.out".format(2-int(r1)))
-    casava_err = os.path.join(fc_dir,"bclToFastq_R{:d}.err".format(2-int(r1)))
+    configure_out = os.path.join(fc_dir, "configureBclToFastq.out")
+    configure_err = os.path.join(fc_dir, "configureBclToFastq.err")
+    casava_out = os.path.join(fc_dir, "bclToFastq_R{:d}.out".format(2 - int(r1)))
+    casava_err = os.path.join(fc_dir, "bclToFastq_R{:d}.err".format(2 - int(r1)))
 
     cl = [os.path.join(casava_dir, "configureBclToFastq.pl")]
     cl.extend(["--input-dir", basecall_dir])
     cl.extend(["--output-dir", unaligned_dir])
     cl.extend(["--mismatches", str(num_mismatches)])
     cl.extend(["--fastq-cluster-count", "0"])
-    if samplesheet_file is not None: cl.extend(["--sample-sheet", samplesheet_file])
-    if im_stats: cl.append("--ignore-missing-stats")
-    if im_bcl: cl.append("--ignore-missing-bcl")
-    if im_control: cl.append("--ignore-missing-control")
-    
+    if samplesheet_file is not None:
+        cl.extend(["--sample-sheet", samplesheet_file])
+
+    if im_stats:
+        cl.append("--ignore-missing-stats")
+
+    if im_bcl:
+        cl.append("--ignore-missing-bcl")
+
+    if im_control:
+        cl.append("--ignore-missing-control")
+
     bm = _get_bases_mask(fc_dir)
     if bm is not None:
         cl.extend(["--use-bases-mask", bm])
@@ -328,13 +444,13 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
         # Run configuration script
         logger2.info("Configuring BCL to Fastq conversion")
         logger2.debug(cl)
-        
-        co = open(configure_out,'w')
-        ce = open(configure_err,'w')
+
+        co = open(configure_out, 'w')
+        ce = open(configure_err, 'w')
         try:
-            subprocess.check_call(cl,stdout=co,stderr=ce)
-            co.close()
-            ce.close()
+            co.write("{}\n".format(" ".join(cl)))
+            ce.write("{}\n".format(" ".join(cl)))
+            subprocess.check_call(cl, stdout=co, stderr=ce)
         except subprocess.CalledProcessError, e:
             logger2.error("Configuring BCL to Fastq conversion for {:s} FAILED " \
                           "(exit code {}), please check log files {:s}, {:s}".format(fc_dir,
@@ -342,7 +458,11 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
                                                                                      configure_out,
                                                                                      configure_err))
             raise e
-        
+        finally:
+            co.close()
+            ce.close()
+            
+
     # Go to <Unaligned> folder
     with utils.chdir(unaligned_dir):
         # Perform make
@@ -352,13 +472,13 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
 
         logger2.info("Demultiplexing and converting bcl to fastq.gz")
         logger2.debug(cl)
-        
-        co = open(casava_out,'w')
-        ce = open(casava_err,'w')
+
+        co = open(casava_out, 'w')
+        ce = open(casava_err, 'w')
         try:
-            subprocess.check_call(cl,stdout=co,stderr=ce)
-            co.close()
-            ce.close()
+            co.write("{}\n".format(" ".join(cl)))
+            ce.write("{}\n".format(" ".join(cl)))
+            subprocess.check_call(cl, stdout=co, stderr=ce)
         except subprocess.CalledProcessError, e:
             logger2.error("BCL to Fastq conversion for {:s} FAILED " \
                           "(exit code {}), please check log files {:s}, "\
@@ -367,9 +487,13 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
                                         casava_out,
                                         casava_err))
             raise e
-            
+        finally:
+            co.close()
+            ce.close()
+
     logger2.debug("Done")
     return unaligned_dir
+
 
 def _generate_fastq(fc_dir, config, compress_fastq):
     """Generate fastq files for the current flowcell.
@@ -382,7 +506,7 @@ def _generate_fastq(fc_dir, config, compress_fastq):
     if postprocess_dir:
         fastq_dir = os.path.join(postprocess_dir, os.path.basename(fc_dir), "fastq")
 
-    if not fastq_dir == fc_dir:# and not os.path.exists(fastq_dir):
+    if not fastq_dir == fc_dir:  # and not os.path.exists(fastq_dir):
 
         with utils.chdir(basecall_dir):
             lanes = sorted(list(set([f.split("_")[1] for f in
@@ -399,40 +523,43 @@ def _generate_fastq(fc_dir, config, compress_fastq):
 
     return fastq_dir
 
+
 def _calculate_md5(fastq_dir):
     """Calculate the md5sum for the fastq files
     """
     glob_str = "*_fastq.txt"
-    fastq_files = glob.glob(os.path.join(fastq_dir,glob_str))
-    
-    md5sum_file = os.path.join(fastq_dir,"md5sums.txt")
-    with open(md5sum_file,'w') as fh:
+    fastq_files = glob.glob(os.path.join(fastq_dir, glob_str))
+
+    md5sum_file = os.path.join(fastq_dir, "md5sums.txt")
+    with open(md5sum_file, 'w') as fh:
         for fastq_file in fastq_files:
             logger2.debug("Calculating md5 for %s using md5sum" % fastq_file)
-            cl = ["md5sum",fastq_file]
+            cl = ["md5sum", fastq_file]
             fh.write(subprocess.check_output(cl))
 
+
 def _clean_qseq(bc_dir, fastq_dir):
-    """Remove the temporary qseq files if the corresponding fastq file 
+    """Remove the temporary qseq files if the corresponding fastq file
        has been created
-    """    
+    """
     glob_str = "*_1_fastq.txt"
-    fastq_files = glob.glob(os.path.join(fastq_dir,glob_str))
-    
+    fastq_files = glob.glob(os.path.join(fastq_dir, glob_str))
+
     for fastq_file in fastq_files:
         try:
             lane = int(os.path.basename(fastq_file)[0])
         except ValueError:
             continue
-        
+
         logger2.debug("Removing qseq files for lane %d" % lane)
         glob_str = "s_%d_*qseq.txt" % lane
-        
+
         for qseq_file in glob.glob(os.path.join(bc_dir, glob_str)):
             try:
                 os.unlink(qseq_file)
             except:
                 logger2.debug("Could not remove %s" % qseq_file)
+
 
 def _generate_qseq(bc_dir, config):
     """Generate qseq files from illumina bcl files if not present.
@@ -470,24 +597,25 @@ def _is_finished_dumping(directory):
     single or paired end run.
     """
     # Check final output files; handles both HiSeq, MiSeq and GAII
-                        
+
     to_check = ["Basecalling_Netcopy_complete_SINGLEREAD.txt",
                 "Basecalling_Netcopy_complete_READ2.txt"]
-    
+
     # Bugfix: On case-isensitive filesystems (e.g. MacOSX), the READ2-check will return true
     # http://stackoverflow.com/questions/6710511/case-sensitive-path-comparison-in-python
     for fname in os.listdir(directory):
         if fname in to_check:
             return True
-    
-    return _is_finished_basecalling_read(directory,_expected_reads(directory))
+
+    return _is_finished_basecalling_read(directory, _expected_reads(directory))
 
 
 def _is_finished_first_base_report(directory):
     """Determine if the first base report has been generated
-    """ 
-    return os.path.exists(os.path.join(directory, 
+    """
+    return os.path.exists(os.path.join(directory,
                                        "First_Base_Report.htm"))
+
 
 def _is_started_initial_processing(directory):
     """Determine if initial processing has been started
@@ -495,41 +623,48 @@ def _is_started_initial_processing(directory):
     return os.path.exists(os.path.join(directory,
                                        "initial_processing_started.txt"))
 
+
 def _is_initial_processing(directory):
     """Determine if initial processing is in progress
     """
-    return (_is_started_initial_processing(directory) and 
+    return (_is_started_initial_processing(directory) and
             not os.path.exists(os.path.join(directory,
                                             "initial_processing_completed.txt")))
-    
+
+
 def _is_started_first_read_processing(directory):
     """Determine if processing of first read has been started
     """
     return os.path.exists(os.path.join(directory,
                                        "first_read_processing_started.txt"))
 
+
 def _is_processing_first_read(directory):
     """Determine if processing of first read is in progress
     """
-    return (_is_started_first_read_processing(directory) and 
+    return (_is_started_first_read_processing(directory) and
             not os.path.exists(os.path.join(directory,
                                             "first_read_processing_completed.txt")))
-    
+
+
 def _is_started_second_read_processing(directory):
     """Determine if processing of second read of the pair has been started
     """
     return os.path.exists(os.path.join(directory,
                                        "second_read_processing_started.txt"))
-  
+
+
 def _is_finished_basecalling_read(directory, readno):
     """
-    Determine if a given read has finished being basecalled. Raises a ValueError if 
+    Determine if a given read has finished being basecalled. Raises a ValueError if
     the run is not configured to produce the read
-    """ 
+    """
     if readno < 1 or readno > _expected_reads(directory):
         raise ValueError("The run will not produce a Read{:d}".format(readno))
-    return os.path.exists(os.path.join(directory, 
+
+    return os.path.exists(os.path.join(directory,
                                        "Basecalling_Netcopy_complete_Read{:d}.txt".format(readno)))
+
 
 def _do_initial_processing(directory):
     """Determine if the initial processing actions should be run
@@ -537,15 +672,18 @@ def _do_initial_processing(directory):
     return (_is_finished_first_base_report(directory) and
             not _is_started_initial_processing(directory))
 
+
 def _do_first_read_processing(directory):
     """Determine if the processing of the first read should be run
     """
     # If run is not indexed, the first read itself is the highest number
-    read = max(1,_last_index_read(directory))
+    read = max(1, _last_index_read(directory))
+
     # FIXME: Handle a case where the index reads are the first to be read
-    return (_is_finished_basecalling_read(directory,read) and
+    return (_is_finished_basecalling_read(directory, read) and
             not _is_initial_processing(directory) and
             not _is_started_first_read_processing(directory))
+
 
 def _do_second_read_processing(directory):
     """Determine if the processing of the second read of the pair should be run
@@ -554,17 +692,20 @@ def _do_second_read_processing(directory):
             not _is_initial_processing(directory) and
             not _is_processing_first_read(directory) and
             not _is_started_second_read_processing(directory))
-    
+
+
 def _last_index_read(directory):
     """Parse the number of the highest index read from the RunInfo.xml
     """
-    read_numbers = [int(read.get("Number",0)) for read in _get_read_configuration(directory) if read.get("IsIndexedRead","") == "Y"]
+    read_numbers = [int(read.get("Number", 0)) for read in _get_read_configuration(directory) if read.get("IsIndexedRead", "") == "Y"]
     return 0 if len(read_numbers) == 0 else max(read_numbers)
-    
+
+
 def _expected_reads(directory):
     """Parse the number of expected reads from the RunInfo.xml file.
     """
     return len(_get_read_configuration(directory))
+
 
 def _is_finished_dumping_checkpoint(directory):
     """Recent versions of RTA (1.10 or better), write the complete file.
@@ -584,6 +725,7 @@ def _is_finished_dumping_checkpoint(directory):
             if ((v1 > check_v1) or (v1 == check_v1 and v2 >= check_v2)):
                 return True
 
+
 def _get_read_configuration(directory):
     """Parse the RunInfo.xml w.r.t. read configuration and return a list of dicts
     """
@@ -594,21 +736,24 @@ def _get_read_configuration(directory):
         tree.parse(run_info_file)
         read_elem = tree.find("Run/Reads")
         for read in read_elem:
-            reads.append(dict(zip(read.keys(),[read.get(k) for k in read.keys()])))
-    return sorted(reads, key=lambda r: int(r.get("Number",0)))
+            reads.append(dict(zip(read.keys(), [read.get(k) for k in read.keys()])))
+
+    return sorted(reads, key=lambda r: int(r.get("Number", 0)))
+
 
 def _get_bases_mask(directory):
     """Get the base mask to use with Casava based on the run configuration
     """
     runsetup = _get_read_configuration(directory)
-    
+
     # Handle the cases we know what to do with, otherwise, let Casava figure out
     # Case 1: 2x101 PE
-    if (len(runsetup) == 3 and 
+    if (len(runsetup) == 3 and
         (runsetup[0]["NumCycles"] == "101" and runsetup[0]["IsIndexedRead"] == "N") and
         (runsetup[1]["NumCycles"] == "7" and runsetup[1]["IsIndexedRead"] == "Y") and
         (runsetup[2]["NumCycles"] == "101" and runsetup[2]["IsIndexedRead"] == "N")):
         return "Y101,I6n,Y101"
+
     # Case 2: 2x101 PE, dual indexing
     if (len(runsetup) == 4 and
         (runsetup[0]["NumCycles"] == "101" and runsetup[0]["IsIndexedRead"] == "N") and
@@ -616,10 +761,10 @@ def _get_bases_mask(directory):
         (runsetup[2]["NumCycles"] == "8" and runsetup[2]["IsIndexedRead"] == "Y") and
         (runsetup[3]["NumCycles"] == "101" and runsetup[3]["IsIndexedRead"] == "N")):
         return "Y101,I8,I8,Y101"
-    
+
     return None
-        
-    
+
+
 def _files_to_copy(directory):
     """Retrieve files that should be remotely copied.
     """
@@ -639,8 +784,8 @@ def _files_to_copy(directory):
                          glob.glob("Data/Intensities/BaseCalls/*.xml"),
                          glob.glob("Data/Intensities/BaseCalls/*.xsl"),
                          glob.glob("Data/Intensities/BaseCalls/*.htm"),
-                         glob.glob("Unaligned/Basecall_Stats_*/*"),
-                         glob.glob("Unalgiend/Basecall_Stats_*/**/*"),
+                         glob.glob("Unaligned*/Basecall_Stats_*/*"),
+                         glob.glob("Unalgiend*/Basecall_Stats_*/**/*"),
                          ["Data/Intensities/BaseCalls/Plots", "Data/reports",
                           "Data/Status.htm", "Data/Status_Files", "InterOp"]
                         ])
@@ -648,8 +793,8 @@ def _files_to_copy(directory):
         run_info = reduce(operator.add,
                         [glob.glob("run_info.yaml"),
                          glob.glob("*.csv"),
-                         glob.glob("Unaligned/Project_*/**/*.csv"),
-                         glob.glob("Unaligned/Undetermined_indices/**/*.csv"),
+                         glob.glob("Unaligned*/Project_*/**/*.csv"),
+                         glob.glob("Unaligned*/Undetermined_indices/**/*.csv"),
                          glob.glob("*.txt"),
                          glob.glob("*.err"),
                          glob.glob("*.out"),
@@ -659,8 +804,8 @@ def _files_to_copy(directory):
 
         fastq = reduce(operator.add,
                         [glob.glob("Data/Intensities/BaseCalls/*fastq.gz"),
-                         glob.glob("Unaligned/Project_*/**/*.fastq.gz"),
-                         glob.glob("Unaligned/Undetermined_indices/**/*.fastq.gz"),
+                         glob.glob("Unaligned*/Project_*/**/*.fastq.gz"),
+                         glob.glob("Unaligned*/Undetermined_indices/**/*.fastq.gz"),
                          ["Data/Intensities/BaseCalls/fastq"]
                         ])
 
@@ -686,9 +831,10 @@ def _get_directories(config):
     for directory in config["dump_directories"]:
         for fpath in sorted(os.listdir(directory)):
             m = re.match("\d{6}_[A-Za-z0-9]+_\d+_[AB]?[A-Z0-9\-]+", fpath)
-            if not os.path.isdir(os.path.join(directory,fpath)) or m is None:
+            if not os.path.isdir(os.path.join(directory, fpath)) or m is None:
                 continue
-            yield os.path.join(directory,fpath)
+            yield os.path.join(directory, fpath)
+
 
 def _update_reported(msg_db, new_dname):
     """Add a new directory to the database of reported messages.
@@ -705,7 +851,7 @@ def _update_reported(msg_db, new_dname):
 
 
 def finished_message(fn_name, run_module, directory, files_to_copy,
-                     config, config_file):
+                     config, config_file, pushed=False):
     """Wait for messages with the give tag, passing on to the supplied handler.
     """
     logger2.debug("Calling remote function: %s" % fn_name)
@@ -720,34 +866,48 @@ def finished_message(fn_name, run_module, directory, files_to_copy,
             )
     dirs = {"work": os.getcwd(),
             "config": os.path.dirname(config_file)}
+
     runner = messaging.runner(run_module, dirs, config, config_file, wait=False)
-    runner(fn_name, [[data]])
+
+    if pushed:
+        runner(fn_name, [[data]])
+
+    else:
+        runner(fn_name, [[data]])
 
 if __name__ == "__main__":
     parser = OptionParser()
     parser.add_option("-b", "--backup", dest="backup_msg",
             action="store_true", default=False)
-    parser.add_option("-d", "--nofetch", dest="fetch_msg",
-            action="store_false", default=True)
-    parser.add_option("-p", "--noprocess", dest="process_msg",
-            action="store_false", default=True)
-    parser.add_option("-s", "--nostore", dest="store_msg",
-            action="store_false", default=True)
-    parser.add_option("-f", "--nofastq", dest="fastq",
-            action="store_false", default=True)
+    parser.add_option("-d", "--fetch", dest="fetch_msg",
+            action="store_true", default=False)
+    parser.add_option("-p", "--process", dest="process_msg",
+            action="store_true", default=False)
+    parser.add_option("-s", "--store", dest="store_msg",
+            action="store_true", default=False)
+    parser.add_option("-f", "--fastq", dest="fastq",
+            action="store_true", default=False)
     parser.add_option("-z", "--compress-fastq", dest="compress_fastq",
             action="store_true", default=False)
-    parser.add_option("-q", "--noqseq", dest="qseq",
-            action="store_false", default=True)
-    parser.add_option("-c", "--casava", dest="casava",
+    parser.add_option("-q", "--qseq", dest="qseq",
             action="store_true", default=False)
+    parser.add_option("-c", "--pre-casava", dest="casava",
+            action="store_false", default=True)
     parser.add_option("-r", "--remove-qseq", dest="remove_qseq",
             action="store_true", default=False)
     parser.add_option("-m", "--miseq", dest="miseq",
             action="store_true", default=False)
+    parser.add_option("--pull_data", dest="push_data",
+            action="store_false", default=True)
+    parser.add_option("--post-process-only", dest="post_process_only",
+            action="store_true", default=False)
+    parser.add_option("--run-id", dest="run_id",
+            action="store", default=None)
+    parser.add_option("--no-casava-processing", dest="no_casava_processing",
+            action="store_true", default=False)
 
     (options, args) = parser.parse_args()
-    
+
     # Option --miseq implies --noprocess, --nostore, --nofastq, --noqseq
     if options.miseq:
         options.fetch_msg = False
@@ -758,11 +918,22 @@ if __name__ == "__main__":
         options.qseq = False
         options.casava = False
 
-    kwargs = dict(fetch_msg=options.fetch_msg, process_msg=options.process_msg,
-                  store_msg=options.store_msg, backup_msg=options.backup_msg, fastq=options.fastq,
-                  qseq=options.qseq, remove_qseq=options.remove_qseq, compress_fastq=options.compress_fastq, casava=options.casava)
+    kwargs = {"fetch_msg": options.fetch_msg, \
+              "process_msg": options.process_msg, \
+              "store_msg": options.store_msg, \
+              "backup_msg": options.backup_msg, \
+              "fastq": options.fastq, \
+              "qseq": options.qseq, \
+              "remove_qseq": options.remove_qseq, \
+              "compress_fastq": options.compress_fastq, \
+              "casava": options.casava, \
+              "push_data": options.push_data, \
+              "post_process_only": options.post_process_only, \
+              "run_id": options.run_id, \
+              "no_casava_processing": options.no_casava_processing}
 
     main(*args, **kwargs)
+
 
 ### Tests ###
 
@@ -770,29 +941,52 @@ import unittest
 import shutil
 import tempfile
 
+
+class TestCallsTo_post_process_run(unittest.TestCase):
+    def setUp(self):
+        self.kwargs = {"fetch_msg": None, \
+                       "process_msg": None, \
+                       "store_msg": None, \
+                       "backup_msg": None, \
+                       "fastq": None, \
+                       "qseq": None, \
+                       "remove_qseq": None, \
+                       "compress_fastq": None, \
+                       "casava": None, \
+                       "post_process_config": None}
+
+    def test_call_in_initial_processing(self):
+        args = ["", None, ""]  # [dname, config, local_config]
+        self.assertRaises(OSError, initial_processing, *args, **self.kwargs)
+
+    def test_call_as_in_process_first_read(self):
+        args = ["", None, "", ""]  # [dname, config, local_config, unaligned_dir]
+        self.assertRaises(OSError, _post_process_run, *args, **self.kwargs)
+
+
 class TestCheckpoints(unittest.TestCase):
-    
     def setUp(self):
         self.rootdir = tempfile.mkdtemp(prefix="ifm_test_checkpoints_", dir=self.basedir)
+
     def tearDown(self):
         shutil.rmtree(self.rootdir)
-        
+
     @classmethod
     def _runinfo(cls, outfile, bases_mask="Y101,I7,Y101"):
         """Return an xml string representing the contents of a RunInfo.xml
         file with the specified read configuration
         """
         root = ET.Element("RunInfo")
-        run = ET.Element("Run",attrib={"Id": "120924_SN0002_0003_CC003CCCXX",
-                                       "Number": "1"})
+        run = ET.Element("Run", attrib={"Id": "120924_SN0002_0003_CC003CCCXX",
+                                        "Number": "1"})
         root.append(run)
         run.append(ET.Element("Flowcell", text="C003CCCXX"))
         run.append(ET.Element("Instrument", text="SN0002"))
         run.append(ET.Element("Date", text="120924"))
-        
+
         reads = ET.Element("Reads")
-        for n,r in enumerate(bases_mask.split(",")):
-            reads.append(ET.Element("Read", attrib={"Number": str(n+1),
+        for n, r in enumerate(bases_mask.split(",")):
+            reads.append(ET.Element("Read", attrib={"Number": str(n + 1),
                                                     "NumCycles": r[1:],
                                                     "IsIndexedRead": "Y" if r[0] == "I" else "N"}))
         run.append(reads)
@@ -877,11 +1071,11 @@ class TestCheckpoints(unittest.TestCase):
         self.assertFalse(_do_initial_processing(self.rootdir),
                          "Initial processing should not be run when processing has been started " \
                          "and missing first base report")
-        
+
     def test__do_first_read_processing(self):
         """First read processing logic
         """
-        runinfo = os.path.join(self.rootdir,"RunInfo.xml")
+        runinfo = os.path.join(self.rootdir, "RunInfo.xml")
         self._runinfo(runinfo)
         self.assertFalse(_do_first_read_processing(self.rootdir),
                          "Processing should not be run before first read is finished")
@@ -903,11 +1097,11 @@ class TestCheckpoints(unittest.TestCase):
                                                 "first_read_processing_started.txt"))
         self.assertFalse(_do_first_read_processing(self.rootdir),
                          "Processing should not be run when processing has started")
-        
+
     def test__do_second_read_processing(self):
         """Second read processing logic
         """
-        runinfo = os.path.join(self.rootdir,"RunInfo.xml")
+        runinfo = os.path.join(self.rootdir, "RunInfo.xml")
         self._runinfo(runinfo)
         utils.touch_file(os.path.join(self.rootdir,
                                       "Basecalling_Netcopy_complete_READ2.txt"))
@@ -1038,7 +1232,3 @@ class TestCheckpoints(unittest.TestCase):
         obs_dirs = [d for d in _get_directories(config)]
         self.assertListEqual(sorted(exp_dirs),sorted(obs_dirs),
                               "Should pick up matching directory - miseq-style")
-        
-        
-        
-         
