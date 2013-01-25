@@ -77,7 +77,7 @@ def search_for_new(*args, **kwargs):
 
             with logbook.Processor(run_setter):
                 if kwargs.get("post_process_only",False):
-                    loc_args = args + (None, )
+                    loc_args = (dname) + args + (None, )
                     _post_process_run(*loc_args, **kwargs)
                     continue
                 if _do_initial_processing(dname):
