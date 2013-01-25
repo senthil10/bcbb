@@ -20,6 +20,16 @@ from bcbio.pipeline.transfer import remote_copy
 from bcbio.pipeline.config_loader import load_config
 
 
+def analyze(remote_info, config_file):
+    """Starts analysis of data that have been pushed to analysis location
+    """
+    config = load_config(config_file)
+    fc_dir = remote_info["store_dir"]
+    analysis_dir = _run_analysis(fc_dir, remote_info, config, config_file)
+    _upload_to_galaxy(fc_dir, analysis_dir, remote_info,
+                          config, config_file)
+
+
 def analyze_and_upload(remote_info, config_file):
     """Main entry point for analysis and upload to Galaxy.
     """
@@ -45,7 +55,7 @@ def backup_data(remote_info, config_file):
     _copy_from_sequencer(remote_info, config)
 
 
-# ## Copying over files from sequencer, if necessary
+# Copying over files from sequencer, if necessary
 
 def _copy_from_sequencer(remote_info, config):
     """Get local directory of flowcell info, or copy from sequencer.
@@ -59,11 +69,7 @@ def _copy_from_sequencer(remote_info, config):
         c_keyfile = config["analysis"].get("copy_keyfile", None)
         with fabric.settings(host_string=c_host_str, key_filename=c_keyfile):
             base_dir = config["store_dir"]
-            try:
-                protocol = config["transfer_protocol"]
-            except KeyError:
-                protocol = None
-                pass
+            protocol = config.get("transfer_protocol", None)
 
             fc_dir = remote_copy(remote_info, base_dir, protocol)
 
@@ -78,7 +84,9 @@ def _config_hosts(config):
     if not copy_user or not copy_host:
         copy_user = os.environ["USER"]
         copy_host = re.sub(r'\..*', '', os.uname()[1])
+
     copy_host_str = "%s@%s" % (copy_user, copy_host)
+
     return copy_host_str
 
 
@@ -93,18 +101,22 @@ def _remote_copy(remote_info, config):
     logger.info("Copying analysis files to %s" % fc_dir)
     if not fabric_files.exists(fc_dir):
         fabric.run("mkdir %s" % fc_dir)
+
     for fcopy in remote_info['to_copy']:
         target_loc = os.path.join(fc_dir, fcopy)
         if not fabric_files.exists(target_loc):
             target_dir = os.path.dirname(target_loc)
             if not fabric_files.exists(target_dir):
                 fabric.run("mkdir -p %s" % target_dir)
+
             cl = ["scp", "-r", "%s@%s:%s/%s" %
                   (remote_info["user"], remote_info["hostname"],
                    remote_info["directory"], fcopy),
                   target_loc]
             fabric.run(" ".join(cl))
+
     logger.info("Analysis files copied")
+
     return fc_dir
 
 
@@ -116,16 +128,20 @@ def _run_analysis(fc_dir, remote_info, config, config_file):
                     os.getcwd()), os.path.basename(remote_info["directory"]))
     if not os.path.exists(analysis_dir):
         os.makedirs(analysis_dir)
+
     with utils.chdir(analysis_dir):
         if config["algorithm"]["num_cores"] == "messaging":
             prog = config["analysis"].get("distributed_process_program",
                                           "distributed_nextgen_pipeline.py")
         else:
             prog = config["analysis"]["process_program"]
+
         cl = [prog, config_file, fc_dir]
         if run_yaml:
             cl.append(run_yaml)
+
         subprocess.check_call(cl)
+
     return analysis_dir
 
 
