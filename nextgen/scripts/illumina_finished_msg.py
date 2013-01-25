@@ -64,13 +64,22 @@ def search_for_new(*args, **kwargs):
     config = args[0]
     reported = _read_reported(config["msg_db"])
     for dname in _get_directories(config):
-        if os.path.isdir(dname) and not any(dir.startswith(dname) for dir in reported):
+        # Only process a directory if it isn't listed in the transfer db or if it was specifically requested
+        # on the command line
+        if os.path.isdir(dname) and \
+        ((len(kwargs.get("run_id","")) == 0 and not any(dir.startswith(dname) for dir in reported)) or \
+         kwargs.get("run_id","") == os.path.basename(dname)):
+        
             # Injects run_name on logging calls.
             # Convenient for run_name on "Subject" for email notifications
             def run_setter(record):
                 return record.extra.__setitem__('run', os.path.basename(dname))
 
             with logbook.Processor(run_setter):
+                if kwargs.get("post_process_only",False):
+                    loc_args = args + (None, )
+                    _post_process_run(*loc_args, **kwargs)
+                    continue
                 if _do_initial_processing(dname):
                     initial_processing(dname, *args, **kwargs)
 
@@ -79,7 +88,6 @@ def search_for_new(*args, **kwargs):
 
                 elif _do_second_read_processing(dname):
                     process_second_read(dname, *args, **kwargs)
-
                 else:
                     pass
 
@@ -311,10 +319,8 @@ def simple_upload(remote_info, data):
     """
     include = []
     for fcopy in data['to_copy']:
-        if os.path.isdir(fcopy):
-            include.extend(["--include", "{}**/*".format(fcopy)])
-        elif os.path.isfile(fcopy):
-            include.append("--include={}".format(fcopy))
+        include.extend(["--include", "{}**/*".format(fcopy)])
+        include.append("--include={}".format(fcopy))
         # By including both these patterns we get the entire directory
         # if a directory is given, or a single file if a single file is
         # given.
@@ -890,6 +896,10 @@ if __name__ == "__main__":
             action="store_true", default=False)
     parser.add_option("--push_data", dest="push_data",
             action="store_true", default=False)
+    parser.add_option("--post-process-only", dest="post_process_only",
+            action="store_true", default=False)
+    parser.add_option("--run-id", dest="run_id",
+            action="store", default=None)
     parser.add_option("--no-casava-processing", dest="no_casava_processing",
             action="store_true", default=False)
 
