@@ -23,6 +23,7 @@ install:
     - sudo unzip snpEff_v2_0_5_GRCh37.63.zip -d /usr/share/snpEff/ && rm snpEff_v2_0_5_GRCh37.63.zip
     - sudo pip install numpy
     - sudo pip install cython
+    - sudo pip install pysam==0.7
     - cd nextgen && sudo python setup.py install
 
 notifications:
