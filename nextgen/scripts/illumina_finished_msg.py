@@ -118,10 +118,11 @@ def initial_processing(*args, **kwargs):
             
     # Upload the necessary files
     loc_args = args + (None, )
-    _post_process_run(*loc_args, **{"fetch_msg": True,
+    _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
                                     "process_msg": False,
                                     "store_msg": kwargs.get("store_msg", False),
-                                    "backup_msg": False})
+                                    "backup_msg": kwargs.get("backup_msg", False),
+                                    "push_data": kwargs.get("push_data", False)})
 
     # Touch the indicator flag that processing of read1 has been completed
     utils.touch_indicator_file(os.path.join(dname, "initial_processing_completed.txt"))
@@ -148,10 +149,10 @@ def process_first_read(*args, **kwargs):
 
         unaligned_dir = os.path.join(dname, "Unaligned")
         loc_args = args + (unaligned_dir,)
-        _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", True),
+        _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
                                         "process_msg": False,
                                         "store_msg": kwargs.get("store_msg", False),
-                                        "backup_msg": False,
+                                        "backup_msg": kwargs.get("backup_msg", False),
                                         "push_data": kwargs.get("push_data", False)})
 
         # Touch the indicator flag that processing of read1 has been completed
@@ -190,9 +191,9 @@ def process_second_read(*args, **kwargs):
 
     # Call the post_processing method
     loc_args = args + (fastq_dir,)
-    _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", True),
-                                    "process_msg": kwargs.get("process_msg", True),
-                                    "store_msg": kwargs.get("store_msg", True),
+    _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
+                                    "process_msg": kwargs.get("process_msg", False),
+                                    "store_msg": kwargs.get("store_msg", False),
                                     "backup_msg": kwargs.get("backup_msg", False),
                                     "push_data": kwargs.get("push_data", False)})
 
