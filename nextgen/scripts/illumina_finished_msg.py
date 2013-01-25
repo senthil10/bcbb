@@ -312,7 +312,7 @@ def simple_upload(remote_info, data):
     include = []
     for fcopy in data['to_copy']:
         if os.path.isdir(fcopy):
-            include.append("--include", "{}**/*".format(fcopy))
+            include.extend(["--include", "{}**/*".format(fcopy)])
         elif os.path.isfile(fcopy):
             include.append("--include={}".format(fcopy))
         # By including both these patterns we get the entire directory
