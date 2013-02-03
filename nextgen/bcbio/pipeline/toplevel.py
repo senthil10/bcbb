@@ -24,7 +24,8 @@ def analyze(remote_info, config_file):
     """Starts analysis of data that have been pushed to analysis location
     """
     config = load_config(config_file)
-    fc_dir = remote_info["store_dir"]
+    fc_dir = os.path.join(remote_info["store_dir"], 
+                          os.path.basename(remote_info["directory"]))
     analysis_dir = _run_analysis(fc_dir, remote_info, config, config_file)
     _upload_to_galaxy(fc_dir, analysis_dir, remote_info,
                           config, config_file)
@@ -140,6 +141,7 @@ def _run_analysis(fc_dir, remote_info, config, config_file):
         if run_yaml:
             cl.append(run_yaml)
 
+        print(" ".join(cl))
         subprocess.check_call(cl)
 
     return analysis_dir
