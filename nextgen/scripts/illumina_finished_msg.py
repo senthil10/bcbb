@@ -870,7 +870,8 @@ def finished_message(fn_name, run_module, directory, files_to_copy,
     runner = messaging.runner(run_module, dirs, config, config_file, wait=False)
 
     if pushed:
-        runner(fn_name, [[data]])
+        config["directory"] = directory
+        runner(fn_name, [[config]])
 
     else:
         runner(fn_name, [[data]])
