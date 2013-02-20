@@ -23,7 +23,7 @@ install:
     - sudo pip install numpy
     - sudo pip install cython
     - sudo pip install pysam==0.7
-    - cd nextgen && sudo python setup.py install
+    - cd nextgen && workon master && python setup.py install
 
 notifications:
     email: false
