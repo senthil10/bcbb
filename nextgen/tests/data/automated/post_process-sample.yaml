@@ -23,7 +23,7 @@ algorithm:
   bc_allow_indels: true
   bc_read: 1
   bc_position: 3
-  java_memory: 1g
+  java_memory: 3g
   upload_fastq: false
   save_diskspace: false
   screen_contaminants: false
