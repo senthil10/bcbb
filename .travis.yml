@@ -3,6 +3,13 @@ language: python
 python:
     - 2.7
 
+before_install:
+    #Install virtualenv so dependences doesn't have problems with the existent software (i.e paramiko)
+    - sudo apt-get install curl
+    - curl -s https://raw.github.com/brainsik/virtualenv-burrito/master/virtualenv-burrito.sh | $SHELL
+    - source ~/.venvburrito/startup.sh
+    - mkvirtualenv master
+
 install:
     - sudo apt-get update
     - sudo apt-get install -q -y python-software-properties
