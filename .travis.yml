@@ -11,7 +11,7 @@ install:
     - sudo apt-get update
     #Python paramiko seems to be preinstalled and it's giving compatibility problems
     - sudo apt-get purge -q -y python-paramiko
-    - sudo apt-get install -q -y git-core gcc libsam-java=1.74-1ubuntu1 picard-tools=1.74-1ubuntu1 bowtie bwa freebayes snpeff-2 fastqc-0.10.1 gatk r-base tophat openjdk-6-jre samtools unzip lftp cufflinks wigtools
+    - sudo apt-get install -q -y git-core gcc libsam-java=1.74-1ubuntu1 picard-tools=1.74-1ubuntu1 bowtie bwa freebayes snpeff-2 fastqc-0.10.1 gatk r-base tophat openjdk-6-jre samtools unzip lftp cufflinks wigtools python-dev
     #Download snpeff gnome database
     - lftp -e 'pget -n 8 http://downloads.sourceforge.net/project/snpeff/databases/v2_0_5/snpEff_v2_0_5_GRCh37.63.zip; quit'
     - sudo unzip snpEff_v2_0_5_GRCh37.63.zip -d /usr/share/snpEff/ && rm snpEff_v2_0_5_GRCh37.63.zip
