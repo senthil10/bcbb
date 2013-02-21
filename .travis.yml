@@ -15,8 +15,7 @@ install:
     - lftp -e 'pget -n 8 http://downloads.sourceforge.net/project/snpeff/databases/v2_0_5/snpEff_v2_0_5_GRCh37.63.zip; quit'
     - sudo unzip snpEff_v2_0_5_GRCh37.63.zip -d /usr/share/snpEff/ && rm snpEff_v2_0_5_GRCh37.63.zip
     - curl -s https://raw.github.com/brainsik/virtualenv-burrito/master/virtualenv-burrito.sh | $SHELL
-    - source ~/.venvburrito/startup.sh && mkvirtualenv master --system-site-packages
-    - workon master
+    - source ~/.venvburrito/startup.sh && mkvirtualenv master --system-site-packages && workon master
     - pip install numpy
     - pip install cython
     - cd nextgen && python setup.py install
