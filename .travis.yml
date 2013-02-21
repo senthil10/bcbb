@@ -3,14 +3,6 @@ language: python
 python:
     - 2.7
 
-before_install:
-    #Clean up some space (using aptitude to remove as it is less strict if it doesn't find the package that wants to remove)
-    - sudo apt-get install -y aptitude
-    - sudo apt-get clean
-    - sudo aptitude purge -q -y ruby mysql-common mysql-client mysql-server emacs python2.5 python2.6 python3.1 python3.2 postgresql-common postgresql-client postgresql-server-dev-all sqlite3 mongodb-10gen redis-server elasticsearch erlang-base libcairo2 libcairo2-dev xserver-xorg-core x11-utils x11-common
-    - sudo apt-get autoremove
-    - sudo rm -rf /usr/share/doc
-
 install:
     - sudo apt-get update
     - sudo apt-get install -q -y python-software-properties
@@ -22,10 +14,12 @@ install:
     #Download snpeff gnome database
     - lftp -e 'pget -n 8 http://downloads.sourceforge.net/project/snpeff/databases/v2_0_5/snpEff_v2_0_5_GRCh37.63.zip; quit'
     - sudo unzip snpEff_v2_0_5_GRCh37.63.zip -d /usr/share/snpEff/ && rm snpEff_v2_0_5_GRCh37.63.zip
-    - sudo pip install numpy
-    - sudo pip install cython
-    - sudo pip install pysam==0.7
-    - cd nextgen && sudo python setup.py install
+    - curl -s https://raw.github.com/brainsik/virtualenv-burrito/master/virtualenv-burrito.sh | $SHELL
+    - source ~/.venvburrito/startup.sh && mkvirtualenv master --system-site-packages
+    - workon master
+    - pip install numpy
+    - pip install cython
+    - cd nextgen && python setup.py install
 
 notifications:
     email: false
