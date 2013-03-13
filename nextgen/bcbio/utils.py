@@ -13,6 +13,7 @@ import codecs
 import cStringIO
 import gzip
 from datetime import datetime
+from bcbio.distributed.transaction import file_transaction
 
 try:
     import multiprocessing
@@ -203,20 +204,17 @@ def add_full_path(dirname, basedir=None):
 def compress_files(to_compress):
     """Compress all the files in the set to_compress
     """
-    from bcbio.distributed.transaction import file_transaction
     raw_size = 0
     gzipped_size = 0
-    for file in to_compress:
-        out_file = file + '.gz'
-        if file_exists(str(file)) and not file_exists(out_file):
+    for f in to_compress:
+        out_file = f + '.gz'
+        if file_exists(str(f)) and not file_exists(out_file):
             with file_transaction(out_file) as tx_out_file:
-                raw_size += os.stat(file).st_size
-                f_in = open(file, 'rb')
-                f_out = gzip.open(tx_out_file, 'wb')
-                f_out.writelines(f_in)
-                f_out.close()
-                f_in.close()
-                os.remove(file)
+                raw_size += os.stat(f).st_size
+                with open(f, 'rb') as f_in:
+                    with gzip.open(tx_out_file, 'wb') as f_out:
+                        f_out.writelines(f_in)
+                os.remove(f)
                 gzipped_size += os.stat(tx_out_file).st_size
     return raw_size, gzipped_size
 
