@@ -203,6 +203,8 @@ def add_full_path(dirname, basedir=None):
 def compress_files(to_compress):
     """Compress all the files in the set to_compress
     """
+    #This local import prevents a circular import, since since transaction import 
+    #utils, and then utils imports transaction
     from bcbio.distributed.transaction import file_transaction
     raw_size = 0
     gzipped_size = 0
