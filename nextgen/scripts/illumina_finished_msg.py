@@ -69,7 +69,7 @@ def search_for_new(*args, **kwargs):
         if os.path.isdir(dname) and \
         ((kwargs.get("run_id",None) is None and not any(dir.startswith(dname) for dir in reported)) or \
          kwargs.get("run_id",None) == os.path.basename(dname)):
-        
+
             # Injects run_name on logging calls.
             # Convenient for run_name on "Subject" for email notifications
             def run_setter(record):
@@ -115,7 +115,7 @@ def initial_processing(*args, **kwargs):
                                     os.path.dirname(ss_file),
                                     os.path.dirname(dst),
                                     e))
-            
+
     # Upload the necessary files
     loc_args = args + (None, )
     _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
@@ -346,7 +346,7 @@ def simple_upload(remote_info, data):
           # target
           "{store_user}@{store_host}:{store_dir}".format(**remote_info)
          ])
-    
+
     logdir = remote_info.get("log_dir",os.getcwd())
     rsync_out = os.path.join(logdir,"rsync_transfer.out")
     rsync_err = os.path.join(logdir,"rsync_transfer.err")
@@ -437,6 +437,7 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
         cl.append("--ignore-missing-control")
 
     bm = _get_bases_mask(fc_dir)
+    bm = _get_bases_mask2(fc_dir)
     if bm is not None:
         cl.extend(["--use-bases-mask", bm])
 
@@ -461,7 +462,7 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
         finally:
             co.close()
             ce.close()
-            
+
 
     # Go to <Unaligned> folder
     with utils.chdir(unaligned_dir):
@@ -741,28 +742,64 @@ def _get_read_configuration(directory):
     return sorted(reads, key=lambda r: int(r.get("Number", 0)))
 
 
+def _get_flowcell_id(directory):
+    """Parese the RunInfo.xml and return the Flowcell ID
+    """
+    run_info_file = os.path.join(directory, "RunInfo.xml")
+    flowcell_id = ''
+    if os.path.exists(run_info_file):
+        tree = ET.ElementTree()
+        tree.parse(run_info_file)
+        flowcell_id = tree.find("Run/Flowcell").text
+    return flowcell_id
+
+
 def _get_bases_mask(directory):
-    """Get the base mask to use with Casava based on the run configuration
+    """Get the base mask to use with Casava based on the run configuration and
+    on the run SampleSheet
     """
     runsetup = _get_read_configuration(directory)
+    flowcell_id = _get_flowcell_id(directory)
 
-    # Handle the cases we know what to do with, otherwise, let Casava figure out
-    # Case 1: 2x101 PE
-    if (len(runsetup) == 3 and
-        (runsetup[0]["NumCycles"] == "101" and runsetup[0]["IsIndexedRead"] == "N") and
-        (runsetup[1]["NumCycles"] == "7" and runsetup[1]["IsIndexedRead"] == "Y") and
-        (runsetup[2]["NumCycles"] == "101" and runsetup[2]["IsIndexedRead"] == "N")):
-        return "Y101,I6n,Y101"
+    #Create groups of reads by index length
+    ss_name = os.path.join(directory, flowcell_id + '.csv')
+    if os.path.exists(ss_name):
+        ss = csv.DictReader(open(ss_name, 'rb'), delimiter=',')
+        samplesheet = []
+        [samplesheet.append(read) for read in ss]
+        indexes = {}
+        for r in samplesheet:
+            index_length = len(r['Index'].replace('-', ''))
+            if not indexes.has_key(str(index_length)):
+                indexes[str(index_length)] = []
+            indexes[str(index_length)].append(r)
 
-    # Case 2: 2x101 PE, dual indexing
-    if (len(runsetup) == 4 and
-        (runsetup[0]["NumCycles"] == "101" and runsetup[0]["IsIndexedRead"] == "N") and
-        (runsetup[1]["NumCycles"] == "8" and runsetup[1]["IsIndexedRead"] == "Y") and
-        (runsetup[2]["NumCycles"] == "8" and runsetup[2]["IsIndexedRead"] == "Y") and
-        (runsetup[3]["NumCycles"] == "101" and runsetup[3]["IsIndexedRead"] == "N")):
-        return "Y101,I8,I8,Y101"
-
-    return None
+    #Create the basemask for each group
+    base_masks = {}
+    for index_size, index_group in indexes.iteritems():
+        index_size = int(index_size)
+        group = index_size
+        bm = []
+        for read in runsetup:
+            cycles = read['NumCycles']
+            if read['IsIndexedRead'] == 'N':
+                bm.append('Y' + cycles)
+            else:
+                if index_size > 0:
+                    if index_size < int(cycles):
+                        m = 'I' + str(index_size) + 'N'
+                        if int(cycles) - index_size > 1:
+                            bm.append(m + str(int(cycles) - index_size))
+                        else:
+                            bm.append(m)
+                        index_size = 0
+                    elif index_size >= int(cycles):
+                        bm.append('I' + cycles)
+                        index_size = index_size - int(cycles)
+                else:
+                    bm.append('N' + cycles)
+        base_masks[group] = bm
+    return base_masks
 
 
 def _files_to_copy(directory):
@@ -995,45 +1032,45 @@ class TestCheckpoints(unittest.TestCase):
                                                         "SurfaceCount": "2",
                                                         "SwathCount": "3",
                                                         "TileCount": "16"}))
-        
+
         et = ET.ElementTree(root)
         et.write(outfile,encoding="UTF-8")
         return outfile
-        
+
     @classmethod
     def setUpClass(cls):
         cls.basedir = tempfile.mkdtemp(prefix="ifm_test_checkpoints_base_")
-        
+
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.basedir)
-        
+
     def test__is_finished_first_base_report(self):
         """First base report"""
         self.assertFalse(_is_finished_first_base_report(self.rootdir))
         utils.touch_file(os.path.join(self.rootdir,"First_Base_Report.htm"))
         self.assertTrue(_is_finished_first_base_report(self.rootdir))
-        
+
     def test__is_started_initial_processing(self):
         """Initial processing started"""
         self.assertFalse(_is_started_initial_processing(self.rootdir))
         utils.touch_indicator_file(os.path.join(self.rootdir,"initial_processing_started.txt"))
         self.assertTrue(_is_started_initial_processing(self.rootdir))
-        
+
     def test__is_started_first_read_processing(self):
         """First read processing started
         """
         self.assertFalse(_is_started_first_read_processing(self.rootdir))
         utils.touch_indicator_file(os.path.join(self.rootdir,"first_read_processing_started.txt"))
         self.assertTrue(_is_started_first_read_processing(self.rootdir))
-        
+
     def test__is_started_second_read_processing(self):
         """Second read processing started
         """
         self.assertFalse(_is_started_second_read_processing(self.rootdir))
         utils.touch_indicator_file(os.path.join(self.rootdir,"second_read_processing_started.txt"))
         self.assertTrue(_is_started_second_read_processing(self.rootdir))
-    
+
     def test__is_initial_processing(self):
         """Initial processing in progress"""
         self.assertFalse(_is_initial_processing(self.rootdir),
@@ -1044,7 +1081,7 @@ class TestCheckpoints(unittest.TestCase):
         utils.touch_indicator_file(os.path.join(self.rootdir,"initial_processing_completed.txt"))
         self.assertFalse(_is_initial_processing(self.rootdir),
                         "Completed indicator file should not indicate processing in progress")
-        
+
     def test__is_processing_first_read(self):
         """First read processing in progress
         """
@@ -1056,7 +1093,7 @@ class TestCheckpoints(unittest.TestCase):
         utils.touch_indicator_file(os.path.join(self.rootdir,"first_read_processing_completed.txt"))
         self.assertFalse(_is_processing_first_read(self.rootdir),
                         "Completed indicator file should not indicate processing in progress")
-        
+
     def test__do_initial_processing(self):
         """Initial processing logic
         """
@@ -1124,56 +1161,56 @@ class TestCheckpoints(unittest.TestCase):
                                                 "second_read_processing_started.txt"))
         self.assertFalse(_do_second_read_processing(self.rootdir),
                          "Processing should not be run when processing has started")
-        
+
     def test__expected_reads(self):
         """Get expected number of reads
         """
         self.assertEqual(_expected_reads(self.rootdir),0,
                          "Non-existant RunInfo.xml should return 0 expected reads")
-        
+
         runinfo = os.path.join(self.rootdir,"RunInfo.xml")
         self._runinfo(runinfo)
         self.assertEqual(_expected_reads(self.rootdir),3,
                          "Default RunInfo.xml should return 3 expected reads")
-        
+
         self._runinfo(runinfo, "Y101,I6,I6,Y101")
-        
+
         self.assertEqual(_expected_reads(self.rootdir),4,
                          "Dual-index RunInfo.xml should return 4 expected reads")
-        
+
     def test__last_index_read(self):
         """Get number of last index read
         """
         self.assertEqual(_last_index_read(self.rootdir),0,
                          "Non-existant RunInfo.xml should return 0 as last index read")
-        
+
         runinfo = os.path.join(self.rootdir,"RunInfo.xml")
         self._runinfo(runinfo)
         self.assertEqual(_last_index_read(self.rootdir),2,
                          "Default RunInfo.xml should return 2 as last index read")
-        
+
         self._runinfo(runinfo, "Y101,I6,I6,Y101")
         self.assertEqual(_last_index_read(self.rootdir),3,
                          "Dual-index RunInfo.xml should return 3 as last expected read")
-        
+
         self._runinfo(runinfo, "Y101,Y101,Y101")
         self.assertEqual(_last_index_read(self.rootdir),0,
                          "Non-index RunInfo.xml should return 0 as last expected read")
-        
+
     def test__is_finished_basecalling_read(self):
         """Detect finished read basecalling
         """
-        
-        # Create a custom RunInfo.xml in the current directory    
+
+        # Create a custom RunInfo.xml in the current directory
         runinfo = os.path.join(self.rootdir,"RunInfo.xml")
         self._runinfo(runinfo, "Y101,Y101")
-        
+
         with self.assertRaises(ValueError):
             _is_finished_basecalling_read(self.rootdir,0)
-         
+
         with self.assertRaises(ValueError):
             _is_finished_basecalling_read(self.rootdir,3)
-        
+
         for read in (1,2):
             self.assertFalse(_is_finished_basecalling_read(self.rootdir,read),
                              "Should not return true with missing indicator file")
@@ -1181,37 +1218,37 @@ class TestCheckpoints(unittest.TestCase):
                                           "Basecalling_Netcopy_complete_Read{:d}.txt".format(read)))
             self.assertTrue(_is_finished_basecalling_read(self.rootdir,read),
                             "Should return true with existing indicator file")
-            
+
     def test__get_bases_mask(self):
         """Get bases mask
         """
         runinfo = os.path.join(self.rootdir,"RunInfo.xml")
-        
+
         self._runinfo(runinfo)
         self.assertEqual(_get_bases_mask(self.rootdir),"Y101,I6n,Y101",
                          "Unexpected bases mask for 2x100 PE")
-        
+
         self._runinfo(runinfo, "Y101,I8,I8,Y101")
         self.assertEqual(_get_bases_mask(self.rootdir),"Y101,I8,I8,Y101",
                          "Unexpected bases mask for 2x100 PE - Dual index")
-        
+
         self._runinfo(runinfo, "Y10,I2,Y10")
         self.assertIsNone(_get_bases_mask(self.rootdir),
                         "Expected empty bases mask from unknown run configuration")
-    
+
     def test__get_read_configuration(self):
         """Get read configuration
         """
-        
+
         self.assertListEqual(_get_read_configuration(self.rootdir), [],
                              "Expected empty list for non-existing RunInfo.xml")
-        
+
         runinfo = os.path.join(self.rootdir,"RunInfo.xml")
         self._runinfo(runinfo)
         obs_reads = _get_read_configuration(self.rootdir)
         self.assertListEqual([r.get("Number",0) for r in obs_reads],["1","2","3"],
                              "Expected 3 reads for 2x100 PE")
-        
+
     def test__get_directories(self):
         """Get run output directories
         """
