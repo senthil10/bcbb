@@ -218,7 +218,7 @@ def compress_files(to_compress):
                         f_out.writelines(f_in)
                 os.remove(f)
                 gzipped_size += os.stat(tx_out_file).st_size
-    return raw_size, gzipped_size
+    return [[raw_size, gzipped_size]]
 
 
 # ## Dealing with configuration files

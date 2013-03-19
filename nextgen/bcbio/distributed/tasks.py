@@ -4,6 +4,7 @@ import time
 
 from celery.task import task
 
+from bcbio import utils
 from bcbio.pipeline import sample, lane, toplevel, storage, shared, variation
 from bcbio.variation import realign, genotype
 from bcbio.google import sequencing_report
@@ -144,6 +145,10 @@ def combine_variant_files(*args):
 @task
 def detect_sv(*args):
     return variation.detect_sv(*args)
+
+@task
+def compress_files(*args):
+    return utils.compress_files(*args)
 
 
 @task
