@@ -138,7 +138,7 @@ def _write_demultiplex_metrics(multiplex, bc_metrics, metrics_file):
         for plex in multiplex:
             lane = int(plex["lane"])
             sequence = plex["sequence"]
-            if sequence in bc_metrics[lane]:
+            if sequence in bc_metrics.get(lane,{}):
                 read_count = bc_metrics[lane][sequence]["read_count"]
                 name = bc_metrics[lane][sequence]["name"]
             else:
