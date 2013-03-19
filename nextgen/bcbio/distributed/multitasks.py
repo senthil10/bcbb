@@ -73,3 +73,7 @@ def combine_variant_files(*args):
 @utils.map_wrap
 def detect_sv(*args):
     return variation.detect_sv(*args)
+
+@utils.map_wrap
+def compress_files(*args):
+    return utils.compress_files(*args)
