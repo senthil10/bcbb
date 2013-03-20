@@ -33,6 +33,7 @@ import xml.etree.ElementTree as ET
 import re
 import csv
 from shutil import copyfile
+from multiprocessing import Pool
 
 import logbook
 
@@ -263,7 +264,7 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
     # Write the metrics to one output file
     metricfile = os.path.join(fc_dir, "Unaligned", "Basecall_Stats_{}".format(fc_dir.split("_")[-1][1:]), "Undemultiplexed_stats.metrics")
     with open(metricfile, "w") as fh:
-        w = csv.DictWriter(fh, fieldnames=header, dialect=csv.excel_tab)
+        w = csv.DictWriter(fh, fieldnamea=header, dialect=csv.excel_tab)
         w.writeheader()
         w.writerows(metrics)
 
@@ -399,14 +400,34 @@ def _process_samplesheets(dname, config):
         samplesheet.csv2yaml(ss_file, out_file)
 
 
-def _generate_fastq_with_casava(fc_dir, config, r1=False):
+def _generate_fastq_with_casava_task(args):
     """Perform demultiplexing and generate fastq.gz files for the current
     flowecell using CASAVA (>1.8).
     """
+    bp = args.get('bp')
+    samples_group = args.get('samples')
+    base_mask = samples_group['base_mask']
+    samples = samples_group['samples']
+    fc_dir = args.get('fc_dir')
+    config = args.get('config')
+    r1 = args.get('r1', False)
+    ss = 'SampleSheet_{bp}bp.csv'.format(bp=str(bp))
+    unaligned_folder = 'Unaligned_{bp}bp'.format(bp=str(bp))
+    out_file = 'configureBclToFastq_{bp}bp.out'.format(bp=str(bp))
+    err_file = 'configureBclToFastq_{bp}bp.err'.format(bp=str(bp))
+
+    #Create separate samplesheet and folder
+    with open(os.path.join(fc_dir, ss), 'w') as fh:
+        samplesheet = csv.DictWriter(fh, fieldnames=samples['fieldnames'], dialect='excel')
+        samplesheet.writeheader()
+        samplesheet.writerows(samples['samples'])
+    utils.safe_makedir(os.path.join(fc_dir, unaligned_folder))
+
+    #Prepare CL arguments and call configureBclToFastq
     basecall_dir = os.path.join(fc_dir, "Data", "Intensities", "BaseCalls")
     casava_dir = config["program"].get("casava")
-    unaligned_dir = os.path.join(fc_dir, "Unaligned")
-    samplesheet_file = samplesheet.run_has_samplesheet(fc_dir, config)
+    unaligned_dir = os.path.join(fc_dir, unaligned_folder)
+    samplesheet_file = os.path.join(fc_dir, ss)
     num_mismatches = config["algorithm"].get("mismatches", 1)
     num_cores = config["algorithm"].get("num_cores", 1)
     im_stats = config["algorithm"].get("ignore-missing-stats", False)
@@ -414,8 +435,8 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
     im_control = config["algorithm"].get("ignore-missing-control", False)
 
     # Write to log files
-    configure_out = os.path.join(fc_dir, "configureBclToFastq.out")
-    configure_err = os.path.join(fc_dir, "configureBclToFastq.err")
+    configure_out = os.path.join(fc_dir, out_file)
+    configure_err = os.path.join(fc_dir, err_file)
     casava_out = os.path.join(fc_dir, "bclToFastq_R{:d}.out".format(2 - int(r1)))
     casava_err = os.path.join(fc_dir, "bclToFastq_R{:d}.err".format(2 - int(r1)))
 
@@ -436,9 +457,7 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
     if im_control:
         cl.append("--ignore-missing-control")
 
-    bm = _get_bases_mask(fc_dir)
-    bm = _get_bases_mask2(fc_dir)
-    if bm is not None:
+    if base_mask is not None:
         cl.extend(["--use-bases-mask", bm])
 
     if r1:
@@ -463,8 +482,7 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
             co.close()
             ce.close()
 
-
-    # Go to <Unaligned> folder
+   # Go to <Unaligned> folder
     with utils.chdir(unaligned_dir):
         # Perform make
         cl = ["make", "-j", str(num_cores)]
@@ -494,6 +512,25 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
 
     logger2.debug("Done")
     return unaligned_dir
+
+
+def _generate_fastq_with_casava(fc_dir, config, r1=False):
+    """Prepare and call the task to perform demultiplexing and generation of
+    fastq.gz files for the current flowcell in using CASAVA (>1.8). If the
+    number of cores specified is > 1, the demultiplexing will be done in
+    parallel.
+    """
+    base_masks = _get_bases_mask(fc_dir)
+    num_cores = config["algorithm"].get("num_cores", 1)
+    #Prepare the list of arguments to call configureBclToFastq
+    args_list = []
+    [args_list.append({'bp': k, 'samples': v, 'fc_dir':fc_dir, 'config':config, 'r1':r1}) \
+                        for k, v in base_masks.iteritems()]
+
+    p = Pool(processes=num_cores)
+    unaligned_dirs = p.map(_generate_fastq_with_casava_task, args_list)
+
+    return unaligned_dirs
 
 
 def _generate_fastq(fc_dir, config, compress_fastq):
@@ -755,11 +792,36 @@ def _get_flowcell_id(directory):
 
 
 def _get_bases_mask(directory):
+    """Get the base mask to use with Casava based on the run configuration
+    """
+    runsetup = _get_read_configuration(directory)
+
+    # Handle the cases we know what to do with, otherwise, let Casava figure out
+    # Case 1: 2x101 PE
+    if (len(runsetup) == 3 and
+        (runsetup[0]["NumCycles"] == "101" and runsetup[0]["IsIndexedRead"] == "N") and
+        (runsetup[1]["NumCycles"] == "7" and runsetup[1]["IsIndexedRead"] == "Y") and
+        (runsetup[2]["NumCycles"] == "101" and runsetup[2]["IsIndexedRead"] == "N")):
+        return "Y101,I6n,Y101"
+
+    # Case 2: 2x101 PE, dual indexing
+    if (len(runsetup) == 4 and
+        (runsetup[0]["NumCycles"] == "101" and runsetup[0]["IsIndexedRead"] == "N") and
+        (runsetup[1]["NumCycles"] == "8" and runsetup[1]["IsIndexedRead"] == "Y") and
+        (runsetup[2]["NumCycles"] == "8" and runsetup[2]["IsIndexedRead"] == "Y") and
+        (runsetup[3]["NumCycles"] == "101" and runsetup[3]["IsIndexedRead"] == "N")):
+        return "Y101,I8,I8,Y101"
+
+    return None
+
+
+def _get_bases_mask2(directory):
     """Get the base mask to use with Casava based on the run configuration and
     on the run SampleSheet
     """
     runsetup = _get_read_configuration(directory)
     flowcell_id = _get_flowcell_id(directory)
+    base_masks = {}
 
     #Create groups of reads by index length
     ss_name = os.path.join(directory, flowcell_id + '.csv')
@@ -767,17 +829,16 @@ def _get_bases_mask(directory):
         ss = csv.DictReader(open(ss_name, 'rb'), delimiter=',')
         samplesheet = []
         [samplesheet.append(read) for read in ss]
-        indexes = {}
         for r in samplesheet:
             index_length = len(r['Index'].replace('-', ''))
-            if not indexes.has_key(str(index_length)):
-                indexes[str(index_length)] = []
-            indexes[str(index_length)].append(r)
+            if not base_masks.has_key(index_length):
+                base_masks[index_length] = {'base_mask': [],
+                                            'samples': {'fieldnames': ss.fieldnames, 'samples':[]}}
+            base_masks[index_length]['samples']['samples'].append(r)
 
     #Create the basemask for each group
-    base_masks = {}
-    for index_size, index_group in indexes.iteritems():
-        index_size = int(index_size)
+    for index_size, index_group in base_masks.iteritems():
+        index_size = index_size
         group = index_size
         bm = []
         for read in runsetup:
@@ -798,7 +859,7 @@ def _get_bases_mask(directory):
                         index_size = index_size - int(cycles)
                 else:
                     bm.append('N' + cycles)
-        base_masks[group] = bm
+        base_masks[group]['base_mask'] = bm
     return base_masks
 
 
@@ -995,7 +1056,7 @@ class TestCallsTo_post_process_run(unittest.TestCase):
 
     def test_call_in_initial_processing(self):
         args = ["", None, ""]  # [dname, config, local_config]
-        self.assertRaises(OSError, initial_processing, *args, **self.kwargs)
+        self.assertRaises(ValueError, initial_processing, *args, **self.kwargs)
 
     def test_call_as_in_process_first_read(self):
         args = ["", None, "", ""]  # [dname, config, local_config, unaligned_dir]
