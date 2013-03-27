@@ -34,6 +34,7 @@ import re
 import csv
 from shutil import copyfile
 from multiprocessing import Pool
+from itertools import izip
 
 import logbook
 
@@ -141,20 +142,22 @@ def process_first_read(*args, **kwargs):
 
             # Touch the indicator flag that processing of read1 has been started
             utils.touch_indicator_file(os.path.join(dname, "first_read_processing_started.txt"))
-            unaligned_dir = _generate_fastq_with_casava(dname, config, r1=True)
+            unaligned_dirs = _generate_fastq_with_casava(dname, config, r1=True)
             logger2.info("Done generating fastq.gz files for read 1 of {:s}".format(dname))
 
             # Extract the top barcodes from the undemultiplexed fraction
-            if config["program"].get("extract_barcodes", None):
-                extract_top_undetermined_indexes(dname, unaligned_dir, config)
+            for unaligned_dir in unaligned_dirs:
+                if config["program"].get("extract_barcodes", None):
+                    extract_top_undetermined_indexes(dname, unaligned_dir, config)
 
-        unaligned_dir = os.path.join(dname, "Unaligned")
-        loc_args = args + (unaligned_dir,)
-        _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
-                                        "process_msg": False,
-                                        "store_msg": kwargs.get("store_msg", False),
-                                        "backup_msg": kwargs.get("backup_msg", False),
-                                        "push_data": kwargs.get("push_data", False)})
+        for unaligned_dir in unaligned_dirs:
+            unaligned_dir = os.path.join(dname, "Unaligned")
+            loc_args = args + (unaligned_dir,)
+            _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
+                                            "process_msg": False,
+                                            "store_msg": kwargs.get("store_msg", False),
+                                            "backup_msg": kwargs.get("backup_msg", False),
+                                            "push_data": kwargs.get("push_data", False)})
 
         # Touch the indicator flag that processing of read1 has been completed
         utils.touch_indicator_file(os.path.join(dname, "first_read_processing_completed.txt"))
@@ -792,30 +795,6 @@ def _get_flowcell_id(directory):
 
 
 def _get_bases_mask(directory):
-    """Get the base mask to use with Casava based on the run configuration
-    """
-    runsetup = _get_read_configuration(directory)
-
-    # Handle the cases we know what to do with, otherwise, let Casava figure out
-    # Case 1: 2x101 PE
-    if (len(runsetup) == 3 and
-        (runsetup[0]["NumCycles"] == "101" and runsetup[0]["IsIndexedRead"] == "N") and
-        (runsetup[1]["NumCycles"] == "7" and runsetup[1]["IsIndexedRead"] == "Y") and
-        (runsetup[2]["NumCycles"] == "101" and runsetup[2]["IsIndexedRead"] == "N")):
-        return "Y101,I6n,Y101"
-
-    # Case 2: 2x101 PE, dual indexing
-    if (len(runsetup) == 4 and
-        (runsetup[0]["NumCycles"] == "101" and runsetup[0]["IsIndexedRead"] == "N") and
-        (runsetup[1]["NumCycles"] == "8" and runsetup[1]["IsIndexedRead"] == "Y") and
-        (runsetup[2]["NumCycles"] == "8" and runsetup[2]["IsIndexedRead"] == "Y") and
-        (runsetup[3]["NumCycles"] == "101" and runsetup[3]["IsIndexedRead"] == "N")):
-        return "Y101,I8,I8,Y101"
-
-    return None
-
-
-def _get_bases_mask2(directory):
     """Get the base mask to use with Casava based on the run configuration and
     on the run SampleSheet
     """
@@ -824,7 +803,7 @@ def _get_bases_mask2(directory):
     base_masks = {}
 
     #Create groups of reads by index length
-    ss_name = os.path.join(directory, flowcell_id + '.csv')
+    ss_name = os.path.join(directory, str(flowcell_id) + '.csv')
     if os.path.exists(ss_name):
         ss = csv.DictReader(open(ss_name, 'rb'), delimiter=',')
         samplesheet = []
@@ -1098,6 +1077,35 @@ class TestCheckpoints(unittest.TestCase):
         et.write(outfile,encoding="UTF-8")
         return outfile
 
+
+    @classmethod
+    def _samplesinfo(cls, outfile, index_info='simple_index'):
+        """Return a csv string representing the contents of a samples csv file
+        with the specified index configuration.
+        """
+        fn = ['FCID', 'Lane', 'SampleID', 'SampleRef', 'Index', 'Description', \
+              'Control', 'Recipe', 'Operator', 'SampleProject']
+        sample = "C1NWWACXX,1,P352_184B_index12,hg19,{index},J_Doe_13_01,N,R1,NN,J_Doe_13_01"
+        with open(outfile, 'w') as samplesheet:
+            ss = csv.DictWriter(samplesheet, fieldnames=fn, dialect='excel')
+            ss.writeheader()
+            #Write samples according to index configuration
+            rows = []
+            if index_info == 'simple_index':
+                s1 = sample.format(index='ACGTAG').split(',')
+                rows = [s1]
+            elif index_info == 'mixed_index':
+                s1 = sample.format(index='ACGTAG').split(',')
+                s2 = sample.format(index='ACGTACGT').split(',')
+                s3 = sample.format(index='ACGTACGT-ACGTACGT').split(',')
+                rows = [s1, s2, s3]
+            elif index_info == 'no_index':
+                s1 = sample.format(index='').split(',')
+                rows = [s1]
+            ss.writerows([{k:v for k,v in izip(fn,r)} for r in rows])
+        return outfile
+
+
     @classmethod
     def setUpClass(cls):
         cls.basedir = tempfile.mkdtemp(prefix="ifm_test_checkpoints_base_")
@@ -1283,19 +1291,27 @@ class TestCheckpoints(unittest.TestCase):
     def test__get_bases_mask(self):
         """Get bases mask
         """
-        runinfo = os.path.join(self.rootdir,"RunInfo.xml")
-
+        runinfo = os.path.join(self.rootdir, "RunInfo.xml")
         self._runinfo(runinfo)
-        self.assertEqual(_get_bases_mask(self.rootdir),"Y101,I6n,Y101",
-                         "Unexpected bases mask for 2x100 PE")
+        flowcell_id = _get_flowcell_id(self.rootdir)
+        samplesinfo = os.path.join(self.rootdir, str(flowcell_id) + '.csv')
+        #Test simple index
+        self._samplesinfo(samplesinfo)
+        self.assertEqual(_get_bases_mask(self.rootdir)[6]['base_mask'], ['Y101', 'I6N', 'Y101'])
+        #Test mixed indexes
+        self._runinfo(runinfo, bases_mask='Y101,I8,I8,Y101')
+        self._samplesinfo(samplesinfo, index_info='mixed_index')
+        masks = _get_bases_mask(self.rootdir)
+        self.assertEqual(masks[6]['base_mask'], ['Y101', 'I6N2', 'N8', 'Y101'])
+        self.assertEqual(masks[8]['base_mask'], ['Y101', 'I8', 'N8', 'Y101'])
+        self.assertEqual(masks[16]['base_mask'], ['Y101', 'I8', 'I8', 'Y101'])
+        #Test no index
+        self._runinfo(runinfo, bases_mask='Y101,Y101')
+        self._samplesinfo(samplesinfo, index_info='no_index')
+        self.assertEqual(_get_bases_mask(self.rootdir)[0]['base_mask'], ['Y101', 'Y101'])
 
-        self._runinfo(runinfo, "Y101,I8,I8,Y101")
-        self.assertEqual(_get_bases_mask(self.rootdir),"Y101,I8,I8,Y101",
-                         "Unexpected bases mask for 2x100 PE - Dual index")
 
-        self._runinfo(runinfo, "Y10,I2,Y10")
-        self.assertIsNone(_get_bases_mask(self.rootdir),
-                        "Expected empty bases mask from unknown run configuration")
+
 
     def test__get_read_configuration(self):
         """Get read configuration
