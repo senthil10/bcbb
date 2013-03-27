@@ -138,7 +138,9 @@ def run_main(config, config_file, fc_dir, work_dir, run_info_yaml):
 
     # Compress all files in to_compress
     if config['algorithm'].get('compress_files', True):
-        (before, after) = utils.compress_files(to_compress)
+        sizes = run_parallel("compress_files", [[[cf]] for cf in to_compress])
+        before = sum([s[0] for s in sizes])
+        after = sum([s[1] for s in sizes])
         logger.info("Space used by the files before compressing (in bytes): " \
                      + str(before))
         logger.info("Space used by the files after compressing (in bytes): " \
