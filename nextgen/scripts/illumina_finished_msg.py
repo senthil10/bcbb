@@ -419,13 +419,6 @@ def _generate_fastq_with_casava_task(args):
     out_file = 'configureBclToFastq_{bp}bp.out'.format(bp=str(bp))
     err_file = 'configureBclToFastq_{bp}bp.err'.format(bp=str(bp))
 
-    #Create separate samplesheet and folder
-    with open(os.path.join(fc_dir, ss), 'w') as fh:
-        samplesheet = csv.DictWriter(fh, fieldnames=samples['fieldnames'], dialect='excel')
-        samplesheet.writeheader()
-        samplesheet.writerows(samples['samples'])
-    utils.safe_makedir(os.path.join(fc_dir, unaligned_folder))
-
     #Prepare CL arguments and call configureBclToFastq
     basecall_dir = os.path.join(fc_dir, "Data", "Intensities", "BaseCalls")
     casava_dir = config["program"].get("casava")
@@ -464,6 +457,12 @@ def _generate_fastq_with_casava_task(args):
         cl.extend(["--use-bases-mask", bm])
 
     if r1:
+        #Create separate samplesheet and folder
+        with open(os.path.join(fc_dir, ss), 'w') as fh:
+            samplesheet = csv.DictWriter(fh, fieldnames=samples['fieldnames'], dialect='excel')
+            samplesheet.writeheader()
+            samplesheet.writerows(samples['samples'])
+
         # Run configuration script
         logger2.info("Configuring BCL to Fastq conversion")
         logger2.debug(cl)
