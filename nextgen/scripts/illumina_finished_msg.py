@@ -454,7 +454,7 @@ def _generate_fastq_with_casava_task(args):
         cl.append("--ignore-missing-control")
 
     if base_mask is not None:
-        cl.extend(["--use-bases-mask", base_mask])
+        cl.extend(["--use-bases-mask", ','.join(base_mask)])
 
     if r1:
         #Create separate samplesheet and folder
