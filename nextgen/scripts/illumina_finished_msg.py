@@ -265,7 +265,7 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
         os.unlink(p[2])
 
     # Write the metrics to one output file
-    metricfile = os.path.join(fc_dir, "Unaligned", "Basecall_Stats_{}".format(fc_dir.split("_")[-1][1:]), "Undemultiplexed_stats.metrics")
+    metricfile = os.path.join(unaligned_dir, "Basecall_Stats_{}".format(fc_dir.split("_")[-1][1:]), "Undemultiplexed_stats.metrics")
     with open(metricfile, "w") as fh:
         w = csv.DictWriter(fh, fieldnames=header, dialect=csv.excel_tab)
         w.writeheader()
