@@ -861,7 +861,7 @@ def _files_to_copy(directory):
                          glob.glob("Data/Intensities/BaseCalls/*.xsl"),
                          glob.glob("Data/Intensities/BaseCalls/*.htm"),
                          glob.glob("Unaligned*/Basecall_Stats_*/*"),
-                         glob.glob("Unalgiend*/Basecall_Stats_*/**/*"),
+                         glob.glob("Unaligned*/Basecall_Stats_*/**/*"),
                          ["Data/Intensities/BaseCalls/Plots", "Data/reports",
                           "Data/Status.htm", "Data/Status_Files", "InterOp"]
                         ])
