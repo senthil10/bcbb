@@ -209,7 +209,7 @@ def compress_files(to_compress):
     raw_size = 0
     gzipped_size = 0
     for f in to_compress:
-        out_file = f + '.gz'
+        out_file = "{}.{}".format(str(f),'.gz')
         if file_exists(str(f)) and not file_exists(out_file):
             with file_transaction(out_file) as tx_out_file:
                 raw_size += os.stat(f).st_size
