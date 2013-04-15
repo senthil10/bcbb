@@ -323,18 +323,14 @@ def simple_upload(remote_info, data):
     """Upload generated files to specified host using rsync
     """
     include = []
-    for fcopy in data['to_copy']:
-        include.extend(["--include", "{}**/*".format(fcopy)])
-        include.append("--include={}".format(fcopy))
-        # By including both these patterns we get the entire directory
-        # if a directory is given, or a single file if a single file is
-        # given.
+    [include.append("--include={}".format(fcopy)) for fcopy in data['to_copy']]
 
     cl = ["rsync", \
           "--checksum", \
           "--archive", \
           "--partial", \
           "--progress", \
+          "--recursive", \
           "--prune-empty-dirs"
           ]
 
@@ -844,6 +840,35 @@ def _get_bases_mask(directory):
 def _files_to_copy(directory):
     """Retrieve files that should be remotely copied.
     """
+
+    reports = ["*.xml", \
+                "Data/Intensities/BaseCalls/*.xml", \
+                "Data/Intensities/BaseCalls/*.xsl", \
+                "Data/Intensities/BaseCalls/*.htm", \
+                "Unaligned*/Basecall_Stats_*/*", \
+                "Unaligned*/Basecall_Stats_*/**/*", \
+                "Data/Intensities/BaseCalls/Plots", \
+                "Data/reports", \
+                "Data/Status.htm", \
+                "Data/Status_Files", "InterOp"]
+
+    run_info = ["run_info.yaml", \
+                "*.csv", \
+                "Unaligned*/Project_*/**/*.csv", \
+                "Unaligned*/Undetermined_indices/**/*.csv", \
+                "*.txt", \
+                "*.err", \
+                "*.out"]
+
+    fastq = ["Data/Intensities/BaseCalls/*fastq.gz", \
+            "Unaligned*/Project_*/**/*.fastq.gz", \
+            "Unaligned*/Undetermined_indices/**/*.fastq.gz", \
+            "Data/Intensities/BaseCalls/fastq"]
+
+    analysis = ["Data/Intensities/BaseCalls/Alignment"]
+
+    patterns = reports + run_info + fastq + analysis
+
     with utils.chdir(directory):
         image_redo_files = reduce(operator.add,
                                   [glob.glob("*.params"),
@@ -878,18 +903,12 @@ def _files_to_copy(directory):
 
         logs = reduce(operator.add, [["Logs", "Recipe", "Diag", "Data/RTALogs", "Data/Log.txt"]])
 
-        fastq = reduce(operator.add,
-                        [glob.glob("Data/Intensities/BaseCalls/*fastq.gz"),
-                         glob.glob("Unaligned*/Project_*/**/*.fastq.gz"),
-                         glob.glob("Unaligned*/Undetermined_indices/**/*.fastq.gz"),
-                         ["Data/Intensities/BaseCalls/fastq"]
-                        ])
 
-        analysis = reduce(operator.add, [glob.glob("Data/Intensities/BaseCalls/Alignment")])
-
+    #For process_files return a list of patterns to be included in the rsync command
+    #instead of including the list of corresponding files. Otherwise the rsync
+    #command becomes too long
     return (sorted(image_redo_files + logs + reports + run_info + qseqs),
-            sorted(reports + fastq + run_info + analysis),
-            ["*"])
+            patterns, ["*"])
 
 
 def _read_reported(msg_db):
