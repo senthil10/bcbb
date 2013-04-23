@@ -1336,8 +1336,10 @@ class TestCheckpoints(unittest.TestCase):
         obs_dirs = [d for d in _get_directories(config)]
         self.assertListEqual([],obs_dirs,
                               "Should not pick up files, only directories")
-        exp_dirs = [os.path.join(self.rootdir, "222222_SN222_2222_A2222222")]
+        exp_dirs = [os.path.join(self.rootdir, "222222_SN222_2222_A2222222"),
+                    os.path.join(self.rootdir, "333333_D0023_3333_B33333XX")]
         os.mkdir(exp_dirs[-1])
+        os.mkdir(exp_dirs[-2])
         obs_dirs = [d for d in _get_directories(config)]
         self.assertListEqual(sorted(exp_dirs),sorted(obs_dirs),
                               "Should pick up matching directory - hiseq-style")
