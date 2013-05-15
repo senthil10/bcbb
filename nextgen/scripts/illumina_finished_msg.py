@@ -360,7 +360,6 @@ def simple_upload(remote_info, data):
         re.write("-----------\n{}\n".format(" ".join(cl)))
         ro.flush()
         re.flush()
-	print ' '.join(cl)
         subprocess.check_call(cl, stdout=ro, stderr=re)
     except subprocess.CalledProcessError, e:
         logger2.error("rsync transfer of {} FAILED with (exit code {}). " \
