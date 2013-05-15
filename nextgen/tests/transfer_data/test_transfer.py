@@ -4,6 +4,7 @@ import os
 import fabric.api as fabric
 import fabric.contrib.files as fabric_files
 import time
+from nose.plugins.attrib import attr
 from bcbio.log import logger
 from bcbio.pipeline.config_loader import load_config
 
@@ -232,6 +233,7 @@ def test__copy_for_storage_scp():
     remove_before_copy=False)
 
 
+@attr("rsync")
 def test__copy_for_storage_rsync():
     """Test using the copy function with rsync.
     """
@@ -269,6 +271,7 @@ def test__copy_from_sequencer_scp():
     remove_before_copy=False)
 
 
+@attr("rsync")
 def test__copy_from_sequencer_rsync():
     """Test using the copy function with rsync.
     """

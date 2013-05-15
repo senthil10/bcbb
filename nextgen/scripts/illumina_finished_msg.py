@@ -322,13 +322,13 @@ def _post_process_run(dname, config, config_file, fastq_dir, **kwargs):
 def simple_upload(remote_info, data):
     """Upload generated files to specified host using rsync
     """
-    include = []
+    include = ['--include=*/']
     for fcopy in data['to_copy']:
         include.extend(["--include", "{}**/*".format(fcopy)])
         include.append("--include={}".format(fcopy))
-        # By including both these patterns we get the entire directory
-        # if a directory is given, or a single file if a single file is
-        # given.
+    # By including both these patterns we get the entire directory
+    # if a directory is given, or a single file if a single file is
+    # given.
 
     cl = ["rsync", \
           "--checksum", \
@@ -339,9 +339,8 @@ def simple_upload(remote_info, data):
           ]
 
     # file / dir inclusion specification
-    cl.extend(["--include", "*/"])
     cl.extend(include)
-    cl.extend(["--exclude", "*"])
+    cl.append("--exclude=*")
 
     # source and target
     cl.extend([
@@ -361,6 +360,7 @@ def simple_upload(remote_info, data):
         re.write("-----------\n{}\n".format(" ".join(cl)))
         ro.flush()
         re.flush()
+	print ' '.join(cl)
         subprocess.check_call(cl, stdout=ro, stderr=re)
     except subprocess.CalledProcessError, e:
         logger2.error("rsync transfer of {} FAILED with (exit code {}). " \
@@ -844,6 +844,41 @@ def _get_bases_mask(directory):
 def _files_to_copy(directory):
     """Retrieve files that should be remotely copied.
     """
+
+    #First include the files in the root directory, otherwise
+    #the --include=*/ makes a match with all subdirectories
+    #with extension txt, csv, err or out
+    with utils.chdir(directory):
+        root_files = reduce(operator.add,
+                            [glob.glob("*.xml"),
+                             glob.glob("*.csv"),
+                             glob.glob("*.txt"),
+                             glob.glob("*.err"),
+                             glob.glob("*.out")])
+
+    reports = ["Data/Intensities/BaseCalls/*.xml", \
+                "Data/Intensities/BaseCalls/*.xsl", \
+                "Data/Intensities/BaseCalls/*.htm", \
+                "Unaligned*/Basecall_Stats_*/*", \
+                "Unaligned*/Basecall_Stats_*/**/*", \
+                "Data/Intensities/BaseCalls/Plots", \
+                "Data/reports", \
+                "Data/Status.htm", \
+                "Data/Status_Files", "InterOp"]
+
+    run_info = ["run_info.yaml", \
+                "Unaligned*/Project_*/**/*.csv", \
+                "Unaligned*/Undetermined_indices/**/*.csv"]
+
+    fastq = ["Data/Intensities/BaseCalls/*fastq.gz", \
+            "Unaligned*/Project_*/**/*.fastq.gz", \
+            "Unaligned*/Undetermined_indices/**/*.fastq.gz", \
+            "Data/Intensities/BaseCalls/fastq"]
+
+    analysis = ["Data/Intensities/BaseCalls/Alignment"]
+
+    patterns = root_files + reports + run_info + fastq + analysis
+
     with utils.chdir(directory):
         image_redo_files = reduce(operator.add,
                                   [glob.glob("*.params"),
@@ -878,18 +913,12 @@ def _files_to_copy(directory):
 
         logs = reduce(operator.add, [["Logs", "Recipe", "Diag", "Data/RTALogs", "Data/Log.txt"]])
 
-        fastq = reduce(operator.add,
-                        [glob.glob("Data/Intensities/BaseCalls/*fastq.gz"),
-                         glob.glob("Unaligned*/Project_*/**/*.fastq.gz"),
-                         glob.glob("Unaligned*/Undetermined_indices/**/*.fastq.gz"),
-                         ["Data/Intensities/BaseCalls/fastq"]
-                        ])
 
-        analysis = reduce(operator.add, [glob.glob("Data/Intensities/BaseCalls/Alignment")])
-
+    #For process_files return a list of patterns to be included in the rsync command
+    #instead of including the list of corresponding files. Otherwise the rsync
+    #command becomes too long
     return (sorted(image_redo_files + logs + reports + run_info + qseqs),
-            sorted(reports + fastq + run_info + analysis),
-            ["*"])
+            patterns, ["*"])
 
 
 def _read_reported(msg_db):
