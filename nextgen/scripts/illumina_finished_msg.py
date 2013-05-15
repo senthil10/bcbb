@@ -28,6 +28,7 @@ import glob
 import getpass
 import subprocess
 import time
+import sys
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
 import re
@@ -102,17 +103,6 @@ def search_for_new(*args, **kwargs):
                 # Re-read the reported database to make sure it hasn't
                 # changed while processing.
                 reported = _read_reported(config["msg_db"])
-
-def _is_miseq_run(fcdir):
-    """Return True if this is a miseq run folder, False otherwise
-    """
-    if not _is_run_folder_name(os.path.basename(fcdir)):
-        return False
-    
-    # Assume that a HiSeq run folder ends with [AB][A-Z0-9]XX and that it is a MiSeq folder otherwise
-    p = os.path.basename(fcdir).split("_")[-1]
-    m = re.match(r'[AB][A-Z0-9]+XX',p)
-    return (m is None)
     
 def initial_processing(*args, **kwargs):
     """Initial processing to be performed after the first base report
@@ -135,11 +125,11 @@ def initial_processing(*args, **kwargs):
                                     e))
     # If this is a MiSeq run and we have the scilifelab modules loaded,
     # convert the MiSeq samplesheet into a format compatible with casava
-    elif _is_miseq_run(fc_dir):
+    elif _is_miseq_run(dname):
         if 'scilifelab.illumina.miseq' in sys.modules:
-            mrun = MiSeqRun(fc_dir)
-            hiseq_ssheet = os.path.join(fc_dir,'{}.csv'.format(_get_flowcell_id(fc_dir)))
-            mr.write_hiseq_samplesheet(hiseq_ssheet)
+            mrun = MiSeqRun(dname)
+            hiseq_ssheet = os.path.join(dname,'{}.csv'.format(_get_flowcell_id(dname)))
+            mrun.write_hiseq_samplesheet(hiseq_ssheet)
         # If the module wasn't loaded, there's nothing we can do, so warn
         else:
             logger2.error("The necessary dependencies for processing MiSeq runs with CASAVA could not be loaded")
@@ -237,7 +227,7 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
     """
     infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*", "*_R1_*.fastq.gz")
     infiles = glob.glob(infile_glob)
-
+    
     # Only run as many simultaneous processes as number of cores specified in config
     procs = []
     num_cores = config["algorithm"].get("num_cores", 1)
@@ -291,7 +281,8 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
         os.unlink(p[2])
 
     # Write the metrics to one output file
-    metricfile = os.path.join(unaligned_dir, "Basecall_Stats_{}".format(fc_dir.split("_")[-1][1:]), "Undemultiplexed_stats.metrics")
+    fcid = _get_flowcell_id(fc_dir)
+    metricfile = os.path.join(unaligned_dir, "Basecall_Stats_{}".format(fcid), "Undemultiplexed_stats.metrics")
     with open(metricfile, "w") as fh:
         w = csv.DictWriter(fh, fieldnames=header, dialect=csv.excel_tab)
         w.writeheader()
@@ -736,7 +727,9 @@ def _is_finished_basecalling_read(directory, readno):
 def _do_initial_processing(directory):
     """Determine if the initial processing actions should be run
     """
-    return (_is_finished_first_base_report(directory) and
+    # A miseq run does not generate a first base report 
+    return ((_is_miseq_run(directory) or 
+             _is_finished_first_base_report(directory)) and
             not _is_started_initial_processing(directory))
 
 
@@ -773,6 +766,16 @@ def _expected_reads(directory):
     """
     return len(_get_read_configuration(directory))
 
+def _is_miseq_run(fcdir):
+    """Return True if this is a miseq run folder, False otherwise
+    """
+    if not _is_run_folder_name(os.path.basename(fcdir)):
+        return False
+    
+    # Assume that a HiSeq run folder ends with [AB][A-Z0-9]XX and that it is a MiSeq folder otherwise
+    p = os.path.basename(fcdir).split("_")[-1]
+    m = re.match(r'[AB][A-Z0-9]+XX',p)
+    return (m is None)
 
 def _is_finished_dumping_checkpoint(directory):
     """Recent versions of RTA (1.10 or better), write the complete file.
