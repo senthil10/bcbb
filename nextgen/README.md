@@ -20,7 +20,7 @@ researcher access and additional analysis. See the
 
 ###Overview of workflow
 <p align="center">
-  <img src="https://github.com/guillermo-carrasco/bcbb/blob/develop/nextgen/pipeline_flow.png" alt="Pipeline overview"/>
+  <img src="https://raw.github.com/guillermo-carrasco/bcbb/develop/nextgen/pipeline_flow.png" alt="Pipeline overview"/>
 </p>
 
 [o1]: http://galaxy.psu.edu/
