@@ -45,6 +45,12 @@ from bcbio.distributed import messaging
 from bcbio.solexa.flowcell import (get_flowcell_info, get_fastq_dir, get_qseq_dir)
 from bcbio.pipeline.config_loader import load_config
 
+# Import functionality to convert MiSeq samplesheets from the scilifelab repo (if available)
+try:
+    from scilifelab.illumina.miseq import MiSeqRun
+except ImportError:
+    pass
+
 LOG_NAME = os.path.splitext(os.path.basename(__file__))[0]
 log = logbook.Logger(LOG_NAME)
 
@@ -97,7 +103,17 @@ def search_for_new(*args, **kwargs):
                 # changed while processing.
                 reported = _read_reported(config["msg_db"])
 
-
+def _is_miseq_run(fcdir):
+    """Return True if this is a miseq run folder, False otherwise
+    """
+    if not _is_run_folder_name(os.path.basename(fcdir)):
+        return False
+    
+    # Assume that a HiSeq run folder ends with [AB][A-Z0-9]XX and that it is a MiSeq folder otherwise
+    p = os.path.basename(fcdir).split("_")[-1]
+    m = re.match(r'[AB][A-Z0-9]+XX',p)
+    return (m is None)
+    
 def initial_processing(*args, **kwargs):
     """Initial processing to be performed after the first base report
     """
@@ -117,7 +133,17 @@ def initial_processing(*args, **kwargs):
                                     os.path.dirname(ss_file),
                                     os.path.dirname(dst),
                                     e))
-
+    # If this is a MiSeq run and we have the scilifelab modules loaded,
+    # convert the MiSeq samplesheet into a format compatible with casava
+    elif _is_miseq_run(fc_dir):
+        if 'scilifelab.illumina.miseq' in sys.modules:
+            mrun = MiSeqRun(fc_dir)
+            hiseq_ssheet = os.path.join(fc_dir,'{}.csv'.format(_get_flowcell_id(fc_dir)))
+            mr.write_hiseq_samplesheet(hiseq_ssheet)
+        # If the module wasn't loaded, there's nothing we can do, so warn
+        else:
+            logger2.error("The necessary dependencies for processing MiSeq runs with CASAVA could not be loaded")
+    
     # Upload the necessary files
     loc_args = args + (None, )
     _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
@@ -522,6 +548,7 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
     number of cores specified is > 1, the demultiplexing will be done in
     parallel.
     """
+        
     base_masks = _get_bases_mask(fc_dir)
     num_cores = config["algorithm"].get("num_cores", 1)
     #Prepare the list of arguments to call configureBclToFastq
@@ -931,12 +958,15 @@ def _read_reported(msg_db):
                 reported.append(line.strip())
     return reported
 
+def _is_run_folder_name(name):
+    """Check if a name matches the format of *iSeq run folders"""
+    m = re.match("\d{6}_[A-Za-z0-9]+_\d+_[AB]?[A-Z0-9\-]+", name)
+    return (m is not None)
 
 def _get_directories(config):
     for directory in config["dump_directories"]:
         for fpath in sorted(os.listdir(directory)):
-            m = re.match("\d{6}_[A-Za-z0-9]+_\d+_[AB]?[A-Z0-9\-]+", fpath)
-            if not os.path.isdir(os.path.join(directory, fpath)) or m is None:
+            if not os.path.isdir(os.path.join(directory, fpath)) or not _is_run_folder_name(fpath):
                 continue
             yield os.path.join(directory, fpath)
 
