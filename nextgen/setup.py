@@ -5,10 +5,10 @@ from setuptools import setup, find_packages
 import os
 import subprocess
 
-commit = subprocess.check_output(["git", "rev-parse", "--verify", "HEAD"])
+commit = subprocess.check_output(["git", "describe"])
 
 setup(name="bcbio-nextgen",
-      version="0.3a rev: {}".format(commit),
+      version="{}".format(commit),
       author="Brad Chapman",
       author_email="chapmanb@50mail.com",
       description="Automated, distributed next-gen sequencing pipeline; includes Galaxy interaction",
