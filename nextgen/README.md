@@ -18,12 +18,14 @@ researcher access and additional analysis. See the
 [installation instructions for the front end][o2] and a
 [detailed description of the full system][o3].
 
-![Overview of workflow][o4]
+###Overview of workflow
+<p align="center">
+  <img src="https://raw.github.com/guillermo-carrasco/bcbb/develop/nextgen/pipeline_flow.png" height="700" width="500" alt="Pipeline overview"/>
+</p>
 
 [o1]: http://galaxy.psu.edu/
 [o2]: https://bitbucket.org/galaxy/galaxy-central/wiki/LIMS/nglims
 [o3]: http://bcbio.wordpress.com/2011/01/11/next-generation-sequencing-information-management-and-analysis-system-for-galaxy/
-[o4]: http://chapmanb.github.com/bcbb/nglims_organization.png
 [o5]: http://bcbio.wordpress.com/2011/08/19/distributed-exome-analysis-pipeline-with-cloudbiolinux-and-cloudman/
 [o6]: http://cloudbiolinux.org
 [o7]: http://wiki.g2.bx.psu.edu/Admin/Cloud
