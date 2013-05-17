@@ -8,8 +8,11 @@ import contextlib
 import itertools
 import functools
 import ConfigParser
-import csv, codecs, cStringIO
-import datetime
+import csv
+import codecs
+import cStringIO
+import gzip
+from datetime import datetime
 
 try:
     import multiprocessing
@@ -197,6 +200,27 @@ def add_full_path(dirname, basedir=None):
     return dirname
 
 
+def compress_files(to_compress):
+    """Compress all the files in the set to_compress
+    """
+    #This local import prevents a circular import, since since transaction import 
+    #utils, and then utils imports transaction
+    from bcbio.distributed.transaction import file_transaction
+    raw_size = 0
+    gzipped_size = 0
+    for f in to_compress:
+        out_file = "{}{}".format(str(f),'.gz')
+        if file_exists(str(f)) and not file_exists(out_file):
+            with file_transaction(out_file) as tx_out_file:
+                raw_size += os.stat(f).st_size
+                with open(f, 'rb') as f_in:
+                    with gzip.open(tx_out_file, 'wb') as f_out:
+                        f_out.writelines(f_in)
+                os.remove(f)
+                gzipped_size += os.stat(tx_out_file).st_size
+    return [[raw_size, gzipped_size]]
+
+
 # ## Dealing with configuration files
 
 def merge_config_files(fnames):
@@ -218,6 +242,33 @@ def merge_config_files(fnames):
                 out[k] = v
 
     return out
+
+def utc_time():
+    """
+    Make an utc_time with appended 'Z'
+    Borrowed from scilifelab.utils.timestamp
+    """
+    return str(datetime.utcnow()) + 'Z'
+    
+
+def touch_indicator_file(fname, force=False):
+    """Write the current timestamp to the specified file. If it exists, append
+    the timestamp to the end
+    """
+    mode = "w"
+    if file_exists(fname) and not force:
+        mode = "a"
+    with open(fname, mode) as out_handle:
+        out_handle.write("{}\n".format(utc_time()))
+    return fname
+
+def get_post_process_yaml(self):
+    std = os.path.join(self.data_dir, "post_process.yaml")
+    sample = os.path.join(self.data_dir, "post_process-sample.yaml")
+    if os.path.exists(std):
+        return std
+    else:
+        return sample
 
 
 # UTF-8 methods for csv module (does not support it in python >2.7)
@@ -284,28 +335,23 @@ class RecordProgress:
     """A simple interface for recording progress of the parallell
        workflow and outputting timestamp files
     """
-    
     def __init__(self, work_dir, force_overwrite=False):
         self.step = 0
         self.dir = work_dir
         self.fo = force_overwrite
-        
+
     def progress(self, action):
         self.step += 1
         self._timestamp_file(action)
-    
+
     def _action_fname(self, action):
         return os.path.join(self.dir, "{s:02d}_{act}.txt".format(s=self.step,act=action))
-    
+
     def _timestamp_file(self, action):
-        """Write a timestamp to the specified file, either appending or 
+        """Write a timestamp to the specified file, either appending or
         overwriting an existing file
         """
         fname = self._action_fname(action)
-        mode = "w"
-        if file_exists(fname) and not self.fo:
-            mode = "a"
-        with open(fname, mode) as out_handle:
-            out_handle.write("{}\n".format(datetime.datetime.now().isoformat()))
-         
-        
+        touch_indicator_file(fname,self.fo)
+
+

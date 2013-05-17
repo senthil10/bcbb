@@ -2,7 +2,7 @@
 """
 # import copy
 import logbook
-import time
+import datetime
 import yaml
 
 from bcbio.google import _from_unicode
@@ -19,27 +19,34 @@ from bcbio.log import logger2 as log
 from bcbio.distributed import messaging
 import os
 
+
 def queue_report(fc_date, fc_name, run_info_yaml, dirs, config, config_file):
     if "gdocs_upload" not in config:
         return False
-    
-    runner = messaging.runner("bcbio.distributed.google_tasks", {"work": os.getcwd(),"config": os.path.dirname(config_file)}, config, config_file, wait=False)
-    runner("create_report_on_gdocs",[[fc_date,fc_name,run_info_yaml,dirs,config]])
+
+    runner = messaging.runner("bcbio.distributed.google_tasks", \
+        {"work": os.getcwd(), \
+         "config": os.path.dirname(config_file)}, \
+        config, \
+        config_file, \
+        wait=False)
+
+    runner("create_report_on_gdocs", [[fc_date, fc_name, run_info_yaml, dirs, config]])
+
     return True
-    
+
+
 def create_report_on_gdocs(fc_date, fc_name, run_info_yaml, dirs, config):
     """Create reports on gdocs containing both demultiplexed read counts and QC data.
     """
     success = True
     try:
-
         # Inject the fc_date and fc_name in the email subject
         def record_processor(record):
             return record.extra.__setitem__('run', "%s_%s" % (fc_date, fc_name))
 
         # Parse the run_info.yaml file
-        log.debug("This is the run_info being loaded:")
-        log.debug(run_info_yaml)
+        log.debug("Loading this run_info: {}".format(run_info_yaml))
         with open(run_info_yaml, "r") as fh:
             run_info = yaml.load(fh)
 
@@ -68,7 +75,7 @@ def create_report_on_gdocs(fc_date, fc_name, run_info_yaml, dirs, config):
     with log_handler.applicationbound(), logbook.Processor(record_processor):
         try:
             log.info("Started creating sequencing report on Google docs for %s_%s on %s" \
-                % (fc_date, fc_name, time.strftime("%x @ %X")))
+                % (fc_date, fc_name, datetime.datetime.now().isoformat()))
 
             # Get a flowcell object
             fc = Flowcell(fc_name, fc_date, run_info, dirs.get("work", None))
@@ -81,7 +88,7 @@ def create_report_on_gdocs(fc_date, fc_name, run_info_yaml, dirs, config):
             # FIXME: Make the bc stuff use the Flowcell module
             if gdocs_dmplx_spreadsheet is not None:
                 # Upload the data
-                success &= bc_metrics.write_run_report_to_gdocs(fc, fc_date, \
+                bc_metrics.write_run_report_to_gdocs(fc, fc_date, \
                     fc_name, gdocs_dmplx_spreadsheet, encoded_credentials, append=True)
             else:
                 log.warn("Could not find Google Docs demultiplex results file \
@@ -95,7 +102,7 @@ def create_report_on_gdocs(fc_date, fc_name, run_info_yaml, dirs, config):
                 qc = None
 
             if gdocs_qc_spreadsheet is not None and qc is not None:
-                success &= qc_metrics.write_run_report_to_gdocs(fc, qc, gdocs_qc_spreadsheet, encoded_credentials)
+                qc_metrics.write_run_report_to_gdocs(fc, qc, gdocs_qc_spreadsheet, encoded_credentials)
             else:
                 log.warn("Could not find Google Docs QC file title in configuration. " \
                          "No QC data were written to Google Docs " \
@@ -106,7 +113,7 @@ def create_report_on_gdocs(fc_date, fc_name, run_info_yaml, dirs, config):
 
             # Write the bc project summary report
             if projects_folder is not None:
-                success &= create_project_report_on_gdocs(fc, qc, \
+                create_project_report_on_gdocs(fc, qc, \
                     encoded_credentials, projects_folder)
 
         except Exception as e:
@@ -116,11 +123,11 @@ def create_report_on_gdocs(fc_date, fc_name, run_info_yaml, dirs, config):
 
         if success:
             log.info("Sequencing report successfully created on Google " \
-                     "docs for {}_{} on {}".format(fc_date, fc_name, time.strftime("%x @ %X")))
+                     "docs for {}_{} on {}".format(fc_date, fc_name, datetime.datetime.now().isoformat()))
         else:
             log.warn("Encountered exception when writing sequencing " \
                      "report for %s_%s to Google docs on %s" \
-                     % (fc_date, fc_name, time.strftime("%x @ %X")))
+                     % (fc_date, fc_name, datetime.datetime.now().isoformat()))
 
     return success
 
@@ -139,7 +146,7 @@ def create_project_report_on_gdocs(fc, qc, encoded_credentials, gdocs_folder):
     if not parent_folder:
         parent_folder = g_document.add_folder(doc_client, gdocs_folder)
         log.info("Folder {!r} created".format(gdocs_folder))
-            
+
     parent_folder_title = _from_unicode(parent_folder.title.text)
 
     # Loop over the projects
