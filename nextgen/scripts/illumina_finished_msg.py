@@ -958,6 +958,10 @@ def _read_reported(msg_db):
         with open(msg_db) as in_handle:
             for line in in_handle:
                 reported.append(line.strip())
+    else:
+        # Just check if the path to the file exists
+        utils.safe_makedir(os.path.dirname(msg_db))
+        open(msg_db, 'w')
     return reported
 
 def _is_run_folder_name(name):
