@@ -28,6 +28,7 @@ import glob
 import getpass
 import subprocess
 import time
+import sys
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
 import re
@@ -44,6 +45,12 @@ from bcbio import utils
 from bcbio.distributed import messaging
 from bcbio.solexa.flowcell import (get_flowcell_info, get_fastq_dir, get_qseq_dir)
 from bcbio.pipeline.config_loader import load_config
+
+# Import functionality to convert MiSeq samplesheets from the scilifelab repo (if available)
+try:
+    from scilifelab.illumina.miseq import MiSeqRun
+except ImportError:
+    pass
 
 LOG_NAME = os.path.splitext(os.path.basename(__file__))[0]
 log = logbook.Logger(LOG_NAME)
@@ -96,8 +103,7 @@ def search_for_new(*args, **kwargs):
                 # Re-read the reported database to make sure it hasn't
                 # changed while processing.
                 reported = _read_reported(config["msg_db"])
-
-
+    
 def initial_processing(*args, **kwargs):
     """Initial processing to be performed after the first base report
     """
@@ -117,7 +123,17 @@ def initial_processing(*args, **kwargs):
                                     os.path.dirname(ss_file),
                                     os.path.dirname(dst),
                                     e))
-
+    # If this is a MiSeq run and we have the scilifelab modules loaded,
+    # convert the MiSeq samplesheet into a format compatible with casava
+    elif _is_miseq_run(dname):
+        if 'scilifelab.illumina.miseq' in sys.modules:
+            mrun = MiSeqRun(dname)
+            hiseq_ssheet = os.path.join(dname,'{}.csv'.format(_get_flowcell_id(dname)))
+            mrun.write_hiseq_samplesheet(hiseq_ssheet)
+        # If the module wasn't loaded, there's nothing we can do, so warn
+        else:
+            logger2.error("The necessary dependencies for processing MiSeq runs with CASAVA could not be loaded")
+    
     # Upload the necessary files
     loc_args = args + (None, )
     _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
@@ -211,7 +227,7 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
     """
     infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*", "*_R1_*.fastq.gz")
     infiles = glob.glob(infile_glob)
-
+    
     # Only run as many simultaneous processes as number of cores specified in config
     procs = []
     num_cores = config["algorithm"].get("num_cores", 1)
@@ -265,7 +281,8 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
         os.unlink(p[2])
 
     # Write the metrics to one output file
-    metricfile = os.path.join(unaligned_dir, "Basecall_Stats_{}".format(fc_dir.split("_")[-1][1:]), "Undemultiplexed_stats.metrics")
+    fcid = _get_flowcell_id(fc_dir)
+    metricfile = os.path.join(unaligned_dir, "Basecall_Stats_{}".format(fcid), "Undemultiplexed_stats.metrics")
     with open(metricfile, "w") as fh:
         w = csv.DictWriter(fh, fieldnames=header, dialect=csv.excel_tab)
         w.writeheader()
@@ -521,6 +538,7 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
     number of cores specified is > 1, the demultiplexing will be done in
     parallel.
     """
+        
     base_masks = _get_bases_mask(fc_dir)
     num_cores = config["algorithm"].get("num_cores", 1)
     #Prepare the list of arguments to call configureBclToFastq
@@ -708,7 +726,9 @@ def _is_finished_basecalling_read(directory, readno):
 def _do_initial_processing(directory):
     """Determine if the initial processing actions should be run
     """
-    return (_is_finished_first_base_report(directory) and
+    # A miseq run does not generate a first base report 
+    return ((_is_miseq_run(directory) or 
+             _is_finished_first_base_report(directory)) and
             not _is_started_initial_processing(directory))
 
 
@@ -745,6 +765,16 @@ def _expected_reads(directory):
     """
     return len(_get_read_configuration(directory))
 
+def _is_miseq_run(fcdir):
+    """Return True if this is a miseq run folder, False otherwise
+    """
+    if not _is_run_folder_name(os.path.basename(fcdir)):
+        return False
+    
+    # Assume that a HiSeq run folder ends with [AB][A-Z0-9]XX and that it is a MiSeq folder otherwise
+    p = os.path.basename(fcdir).split("_")[-1]
+    m = re.match(r'[AB][A-Z0-9]+XX',p)
+    return (m is None)
 
 def _is_finished_dumping_checkpoint(directory):
     """Recent versions of RTA (1.10 or better), write the complete file.
@@ -928,14 +958,21 @@ def _read_reported(msg_db):
         with open(msg_db) as in_handle:
             for line in in_handle:
                 reported.append(line.strip())
+    else:
+        # Just check if the path to the file exists
+        utils.safe_makedir(os.path.dirname(msg_db))
+        open(msg_db, 'w')
     return reported
 
+def _is_run_folder_name(name):
+    """Check if a name matches the format of *iSeq run folders"""
+    m = re.match("\d{6}_[A-Za-z0-9]+_\d+_[AB]?[A-Z0-9\-]+", name)
+    return (m is not None)
 
 def _get_directories(config):
     for directory in config["dump_directories"]:
         for fpath in sorted(os.listdir(directory)):
-            m = re.match("\d{6}_[A-Za-z0-9]+_\d+_[AB]?[A-Z0-9\-]+", fpath)
-            if not os.path.isdir(os.path.join(directory, fpath)) or m is None:
+            if not os.path.isdir(os.path.join(directory, fpath)) or not _is_run_folder_name(fpath):
                 continue
             yield os.path.join(directory, fpath)
 
@@ -1364,8 +1401,10 @@ class TestCheckpoints(unittest.TestCase):
         obs_dirs = [d for d in _get_directories(config)]
         self.assertListEqual([],obs_dirs,
                               "Should not pick up files, only directories")
-        exp_dirs = [os.path.join(self.rootdir, "222222_SN222_2222_A2222222")]
+        exp_dirs = [os.path.join(self.rootdir, "222222_SN222_2222_A2222222"),
+                    os.path.join(self.rootdir, "333333_D0023_3333_B33333XX")]
         os.mkdir(exp_dirs[-1])
+        os.mkdir(exp_dirs[-2])
         obs_dirs = [d for d in _get_directories(config)]
         self.assertListEqual(sorted(exp_dirs),sorted(obs_dirs),
                               "Should pick up matching directory - hiseq-style")

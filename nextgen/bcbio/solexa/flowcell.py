@@ -13,23 +13,12 @@ def get_flowcell_info(fc_dir):
     """
     (_, fc_dir) = os.path.split(fc_dir)
     parts = fc_dir.split("_")
-    name = None
-    date = None
-    for p in parts:
-        # Support for Hiseq 2000 flowcell id updates
-        if p.endswith(("XX", "xx")):
-            name = p
-        # MiSeq flowcell ids
-        elif p.startswith("AMS"):
-            name = p
-        elif len(p) == 6 and p[0] == "A":
-            name = p
-        elif len(p) == 6:
-            try:
-                int(p)
-                date = p
-            except ValueError:
-                pass
+    name = parts[-1]
+    date = parts[0]
+    try:
+        int(date)
+    except ValueError:
+        date = None
 
     if name is None or date is None:
         raise ValueError("Did not find flowcell name: %s" % fc_dir)
