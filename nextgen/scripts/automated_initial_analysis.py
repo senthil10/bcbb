@@ -84,51 +84,55 @@ def run_main(config, config_file, fc_dir, work_dir, run_info_yaml):
 
     lanes = ((info, fc_name, fc_date, dirs, config) for info in run_items)
     lane_items = run_parallel("process_lane", lanes)
-    [to_compress.add(f) for f in lane_items[0][0:2]]
+    _add_to_compress(to_compress, lane_items, 'lane_items')
     prog.dummy()
     prog.progress("process_lane")
 
     # Remove spiked in controls, contaminants etc.
     lane_items = run_parallel("remove_contaminants", lane_items)
-    [to_compress.add(f) for f in lane_items[0][0:2]]
+    _add_to_compress(to_compress, lane_items, 'lane_items')
     prog.dummy()
     prog.progress("remove_contaminants")
     align_items = run_parallel("process_alignment", lane_items)
-    [to_compress.add(f) for f in align_items[0]['fastq']]
+    _add_to_compress(to_compress, align_items, 'align_items')
     prog.dummy()
     prog.progress("process_alignment")
 
     # process samples, potentially multiplexed across multiple lanes
     samples = organize_samples(align_items, dirs, config_file)
     samples = run_parallel("merge_sample", samples)
-    to_compress.add(samples[0][0]['fastq1'])
-    to_compress.add(samples[0][0]['fastq2'])
+    _add_to_compress(to_compress, samples, 'samples')
     prog.dummy()
     prog.progress("merge_sample")
     samples = run_parallel("mark_duplicates_sample", samples)
-    to_compress.add(samples[0][0]['fastq1'])
-    to_compress.add(samples[0][0]['fastq2'])
+    _add_to_compress(to_compress, samples, 'samples')
     prog.dummy()
     prog.progress("mark_duplicates_sample")
     run_parallel("screen_sample_contaminants", samples)
     prog.dummy()
     prog.progress("screen_sample_contaminants")
     samples = run_parallel("recalibrate_sample", samples)
+    _add_to_compress(to_compress, samples, 'samples')
     prog.dummy()
     prog.progress("recalibrate_sample")
     samples = parallel_realign_sample(samples, run_parallel)
+    _add_to_compress(to_compress, samples, 'samples')
     prog.dummy()
     prog.progress("realign_sample")
     samples = parallel_variantcall(samples, run_parallel)
+    _add_to_compress(to_compress, samples, 'samples')
     prog.dummy()
     prog.progress("variantcall")
     samples = run_parallel("detect_sv", samples)
+    _add_to_compress(to_compress, samples, 'samples')
     prog.dummy()
     prog.progress("detect_sv")
     samples = run_parallel("process_sample", samples)
+    _add_to_compress(to_compress, samples, 'samples')
     prog.dummy()
     prog.progress("process_sample")
     samples = run_parallel("generate_bigwig", samples, {"programs": ["ucsc_bigwig"]})
+    _add_to_compress(to_compress, samples, 'samples')
     prog.dummy()
     prog.progress("generate_bigwig")
     write_project_summary(samples)
@@ -149,6 +153,21 @@ def run_main(config, config_file, fc_dir, work_dir, run_info_yaml):
 
 
 # Utility functions
+
+def _add_to_compress(to_compress, itemlist, type_itemlist):
+    """Add items from itemlist to the set to_compress.
+    """
+    if type_itemlist == 'lane_items':
+        for item in itemlist:
+            [to_compress.add(f) for f in item[0:2]]
+    elif type_itemlist == 'align_items':
+        for item in itemlist:
+            [to_compress.add(f) for f in item.get('fastq', [])]
+    else:
+        for item in itemlist:
+            to_compress.add(item[0].get('fastq1', ''))
+            to_compress.add(item[0].get('fastq2', ''))
+
 
 def _record_sw_versions(config, sw_version_file):
     """Get the versions of software used in the pipeline and output to
