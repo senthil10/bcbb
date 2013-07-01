@@ -271,6 +271,34 @@ def get_post_process_yaml(self):
         return sample
 
 
+def _flowcell_demux_summary(fc1, fc2):
+    """Merge two Flowcell_Demux_Summary.xml files.
+
+    It assumes the structure:
+    <Summary>
+        <Lane index="X">
+           .
+           .
+           .
+        </Lane index="X">
+    </Summary>
+
+    Where X is the lane number [1-8].
+
+    Also assumes that indexes of different length are run in different lanes.
+    """
+
+
+
+
+def merge_flowcell_demux_summary(fc_dir):
+    """Merge two or more Flowcell_Demux_Summary.xml
+
+    :param: :fc_dir: Directory of the flowcell.
+    """
+    
+
+
 # UTF-8 methods for csv module (does not support it in python >2.7)
 # http://docs.python.org/library/csv.html#examples
 
