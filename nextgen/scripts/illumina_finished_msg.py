@@ -235,8 +235,8 @@ def process_all(*args, **kwargs):
     It does the whole processing at once (first and second read), on the same machine.
     """
     dname, config = args[0:2]
-    process_first_read(dname, *args, **kwargs)
-    process_second_read(dname, *args, **kwargs)
+    process_first_read(*args, **kwargs)
+    process_second_read(*args, **kwargs)
 
 
 def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
@@ -456,6 +456,9 @@ def _generate_fastq_with_casava_task(args):
     basecall_dir = os.path.join(fc_dir, "Data", "Intensities", "BaseCalls")
     casava_dir = config["program"].get("casava")
     out_dir = config.get("out_directory", fc_dir)
+    #Append the flowcell dir to the output directory if different from the run dir
+    if out_dir != fc_dir:
+        out_dir = os.path.join(out_dir, os.path.basename(fc_dir))
     unaligned_dir = os.path.join(out_dir, unaligned_folder)
     samplesheet_file = os.path.join(fc_dir, ss)
     num_mismatches = config["algorithm"].get("mismatches", 1)
