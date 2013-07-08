@@ -33,7 +33,7 @@ from optparse import OptionParser
 import xml.etree.ElementTree as ET
 import re
 import csv
-from shutil import copyfile
+from shutil import copyfile, move
 from multiprocessing import Pool
 from itertools import izip
 
@@ -173,14 +173,17 @@ def process_first_read(*args, **kwargs):
                 if config["program"].get("extract_barcodes", None):
                     extract_top_undetermined_indexes(dname, unaligned_dir, config)
 
-        for unaligned_dir in unaligned_dirs:
-            unaligned_dir = os.path.join(dname, "Unaligned")
-            loc_args = args + (unaligned_dir,)
-            _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
-                                            "process_msg": False,
-                                            "store_msg": kwargs.get("store_msg", False),
-                                            "backup_msg": kwargs.get("backup_msg", False),
-                                            "push_data": kwargs.get("push_data", False)})
+        #Only do the post processing (send to UPPMAX) if not process_all_option, in
+        #that case will be done everything after read 2
+        if not config["algorithm"].get("process_all"):
+            for unaligned_dir in unaligned_dirs:
+                unaligned_dir = os.path.join(dname, "Unaligned")
+                loc_args = args + (unaligned_dir,)
+                _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
+                                                "process_msg": False,
+                                                "store_msg": kwargs.get("store_msg", False),
+                                                "backup_msg": kwargs.get("backup_msg", False),
+                                                "push_data": kwargs.get("push_data", False)})
 
         # Touch the indicator flag that processing of read1 has been completed
         utils.touch_indicator_file(os.path.join(dname, "first_read_processing_completed.txt"))
@@ -200,7 +203,7 @@ def process_second_read(*args, **kwargs):
     if kwargs.get("casava", False):
         if not kwargs.get("no_casava_processing", False):
             logger2.info("Generating fastq.gz files for {:s}".format(dname))
-            _generate_fastq_with_casava(dname, config)
+            unaligned_dirs = _generate_fastq_with_casava(dname, config)
 
     else:
         _process_samplesheets(dname, config)
@@ -215,6 +218,10 @@ def process_second_read(*args, **kwargs):
                 _clean_qseq(get_qseq_dir(dname), fastq_dir)
 
             _calculate_md5(fastq_dir)
+
+    #Move back to MooseFS the results from demultiplexing
+    for ud in unaligned_dirs:
+        move(ud, args.get('fc_dir'))
 
     # Call the post_processing method
     loc_args = args + (fastq_dir,)
