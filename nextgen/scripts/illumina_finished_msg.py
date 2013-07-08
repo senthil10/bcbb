@@ -72,7 +72,7 @@ def search_for_new(*args, **kwargs):
     """
     config = args[0]
     reported = _read_reported(config["msg_db"])
-    process_all = config["algorithm"].get("process_all", False)
+    process_all_option = config["algorithm"].get("process_all", False)
     for dname in _get_directories(config):
         # Only process a directory if it isn't listed in the transfer db or if it was specifically requested
         # on the command line
@@ -93,7 +93,7 @@ def search_for_new(*args, **kwargs):
                 if _do_initial_processing(dname):
                     initial_processing(dname, *args, **kwargs)
 
-                if not process_all:
+                if not process_all_option:
                     if _do_first_read_processing(dname):
                         process_first_read(dname, *args, **kwargs)
 
