@@ -94,7 +94,7 @@ def search_for_new(*args, **kwargs):
                     initial_processing(dname, *args, **kwargs)
 
                 if not process_all:
-                    elif _do_first_read_processing(dname):
+                    if _do_first_read_processing(dname):
                         process_first_read(dname, *args, **kwargs)
 
                     elif _do_second_read_processing(dname):
