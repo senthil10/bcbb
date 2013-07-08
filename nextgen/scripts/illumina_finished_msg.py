@@ -72,6 +72,7 @@ def search_for_new(*args, **kwargs):
     """
     config = args[0]
     reported = _read_reported(config["msg_db"])
+    process_all_option = config["algorithm"].get("process_all", False)
     for dname in _get_directories(config):
         # Only process a directory if it isn't listed in the transfer db or if it was specifically requested
         # on the command line
@@ -92,13 +93,19 @@ def search_for_new(*args, **kwargs):
                 if _do_initial_processing(dname):
                     initial_processing(dname, *args, **kwargs)
 
-                elif _do_first_read_processing(dname):
-                    process_first_read(dname, *args, **kwargs)
+                if not process_all_option:
+                    if _do_first_read_processing(dname):
+                        process_first_read(dname, *args, **kwargs)
 
-                elif _do_second_read_processing(dname):
-                    process_second_read(dname, *args, **kwargs)
+                    elif _do_second_read_processing(dname):
+                        process_second_read(dname, *args, **kwargs)
+                    else:
+                        pass
                 else:
-                    pass
+                    #Process both reads at once in the same machine
+                    if _is_finished_dumping_checkpoint(dname):
+                        process_all(dname, *args, **kwargs)
+
 
                 # Re-read the reported database to make sure it hasn't
                 # changed while processing.
@@ -180,7 +187,7 @@ def process_first_read(*args, **kwargs):
 
 
 def process_second_read(*args, **kwargs):
-    """Processing to be performed after all reads have been sequences
+    """Processing to be performed after all reads have been sequenced
     """
     dname, config = args[0:2]
     logger2.info("The instrument has finished dumping on directory %s" % dname)
@@ -220,6 +227,16 @@ def process_second_read(*args, **kwargs):
     # Update the reported database after successful processing
     _update_reported(config["msg_db"], dname)
     utils.touch_indicator_file(os.path.join(dname, "second_read_processing_completed.txt"))
+
+
+def process_all(*args, **kwargs):
+    """Process to be done after all reads have been sequenced.
+
+    It does the whole processing at once (first and second read), on the same machine.
+    """
+    dname, config = args[0:2]
+    process_first_read(*args, **kwargs)
+    process_second_read(*args, **kwargs)
 
 
 def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
@@ -438,7 +455,11 @@ def _generate_fastq_with_casava_task(args):
     #Prepare CL arguments and call configureBclToFastq
     basecall_dir = os.path.join(fc_dir, "Data", "Intensities", "BaseCalls")
     casava_dir = config["program"].get("casava")
-    unaligned_dir = os.path.join(fc_dir, unaligned_folder)
+    out_dir = config.get("out_directory", fc_dir)
+    #Append the flowcell dir to the output directory if different from the run dir
+    if out_dir != fc_dir:
+        out_dir = os.path.join(out_dir, os.path.basename(fc_dir))
+    unaligned_dir = os.path.join(out_dir, unaligned_folder)
     samplesheet_file = os.path.join(fc_dir, ss)
     num_mismatches = config["algorithm"].get("mismatches", 1)
     num_cores = config["algorithm"].get("num_cores", 1)
