@@ -466,6 +466,8 @@ def _generate_fastq_with_casava_task(args):
     #Append the flowcell dir to the output directory if different from the run dir
     if out_dir != fc_dir:
         out_dir = os.path.join(out_dir, os.path.basename(fc_dir))
+        if not os.path.exists(out_dir):
+            os.mkdir(out_dir)
     unaligned_dir = os.path.join(out_dir, unaligned_folder)
     samplesheet_file = os.path.join(fc_dir, ss)
     num_mismatches = config["algorithm"].get("mismatches", 1)
