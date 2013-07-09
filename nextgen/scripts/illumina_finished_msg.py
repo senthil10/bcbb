@@ -34,7 +34,6 @@ import xml.etree.ElementTree as ET
 import re
 import csv
 from shutil import copyfile, move
-from multiprocessing import Pool
 from itertools import izip
 
 import logbook
@@ -220,8 +219,9 @@ def process_second_read(*args, **kwargs):
             _calculate_md5(fastq_dir)
 
     #Move back to MooseFS the results from demultiplexing
-    for ud in unaligned_dirs:
-        move(ud, args.get('fc_dir'))
+    if config.get("out_directory", dname) != dname:
+        for ud in unaligned_dirs:
+            move(ud, dname)
 
     # Call the post_processing method
     loc_args = args + (fastq_dir,)
@@ -574,8 +574,7 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
     [args_list.append({'bp': k, 'samples': v, 'fc_dir':fc_dir, 'config':config, 'r1':r1}) \
                         for k, v in base_masks.iteritems()]
 
-    p = Pool(processes=num_cores)
-    unaligned_dirs = p.map(_generate_fastq_with_casava_task, args_list)
+    unaligned_dirs = map(_generate_fastq_with_casava_task, args_list)
 
     return unaligned_dirs
 
