@@ -102,7 +102,8 @@ def search_for_new(*args, **kwargs):
                         pass
                 else:
                     #Process both reads at once in the same machine
-                    if _is_finished_dumping_checkpoint(dname):
+                    if _is_finished_dumping_checkpoint(dname) and _do_first_read_processing(dname) \
+                    and _do_second_read_processing(dname):
                         process_all(dname, *args, **kwargs)
 
 
@@ -242,6 +243,7 @@ def process_all(*args, **kwargs):
     It does the whole processing at once (first and second read), on the same machine.
     """
     dname, config = args[0:2]
+
     process_first_read(*args, **kwargs)
     process_second_read(*args, **kwargs)
 
