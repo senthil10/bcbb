@@ -34,7 +34,6 @@ import xml.etree.ElementTree as ET
 import re
 import csv
 from shutil import copyfile
-from multiprocessing import Pool
 from itertools import izip
 
 import logbook
@@ -567,8 +566,7 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
     [args_list.append({'bp': k, 'samples': v, 'fc_dir':fc_dir, 'config':config, 'r1':r1}) \
                         for k, v in base_masks.iteritems()]
 
-    p = Pool(processes=num_cores)
-    unaligned_dirs = p.map(_generate_fastq_with_casava_task, args_list)
+    unaligned_dirs = map(_generate_fastq_with_casava_task, args_list)
 
     return unaligned_dirs
 
