@@ -13,6 +13,7 @@ import codecs
 import cStringIO
 import gzip
 from datetime import datetime
+from xml.etree import ElementTree as ET
 
 try:
     import multiprocessing
@@ -203,7 +204,7 @@ def add_full_path(dirname, basedir=None):
 def compress_files(to_compress):
     """Compress all the files in the set to_compress
     """
-    #This local import prevents a circular import, since since transaction import 
+    #This local import prevents a circular import, since since transaction import
     #utils, and then utils imports transaction
     from bcbio.distributed.transaction import file_transaction
     raw_size = 0
@@ -249,7 +250,7 @@ def utc_time():
     Borrowed from scilifelab.utils.timestamp
     """
     return str(datetime.utcnow()) + 'Z'
-    
+
 
 def touch_indicator_file(fname, force=False):
     """Write the current timestamp to the specified file. If it exists, append
@@ -261,6 +262,7 @@ def touch_indicator_file(fname, force=False):
     with open(fname, mode) as out_handle:
         out_handle.write("{}\n".format(utc_time()))
     return fname
+
 
 def get_post_process_yaml(self):
     std = os.path.join(self.data_dir, "post_process.yaml")
@@ -287,8 +289,7 @@ def _flowcell_demux_summary(fc1, fc2):
 
     Also assumes that indexes of different length are run in different lanes.
     """
-
-
+    pass
 
 
 def merge_flowcell_demux_summary(fc_dir):
@@ -296,8 +297,7 @@ def merge_flowcell_demux_summary(fc_dir):
 
     :param: :fc_dir: Directory of the flowcell.
     """
-    
-
+    return ET.ElementTree(ET.Element('Test'))
 
 # UTF-8 methods for csv module (does not support it in python >2.7)
 # http://docs.python.org/library/csv.html#examples
