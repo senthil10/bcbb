@@ -19,6 +19,7 @@ install:
     - pip install --use-mirrors numpy
     - pip install --use-mirrors cython
     - pip install --use-mirrors pysam==0.7
+    - pip install --use-mirrors python-dateutil
     - cd nextgen && python setup.py install
 
 notifications:
