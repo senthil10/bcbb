@@ -109,7 +109,7 @@ def search_for_new(*args, **kwargs):
                 # Re-read the reported database to make sure it hasn't
                 # changed while processing.
                 reported = _read_reported(config["msg_db"])
-    
+
 def initial_processing(*args, **kwargs):
     """Initial processing to be performed after the first base report
     """
@@ -139,7 +139,7 @@ def initial_processing(*args, **kwargs):
         # If the module wasn't loaded, there's nothing we can do, so warn
         else:
             logger2.error("The necessary dependencies for processing MiSeq runs with CASAVA could not be loaded")
-    
+
     # Upload the necessary files
     loc_args = args + (None, )
     _post_process_run(*loc_args, **{"fetch_msg": kwargs.get("fetch_msg", False),
@@ -243,7 +243,7 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
     """
     infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*", "*_R1_*.fastq.gz")
     infiles = glob.glob(infile_glob)
-    
+
     # Only run as many simultaneous processes as number of cores specified in config
     procs = []
     num_cores = config["algorithm"].get("num_cores", 1)
@@ -558,7 +558,7 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
     number of cores specified is > 1, the demultiplexing will be done in
     parallel.
     """
-        
+
     base_masks = _get_bases_mask(fc_dir)
     num_cores = config["algorithm"].get("num_cores", 1)
     #Prepare the list of arguments to call configureBclToFastq
@@ -745,8 +745,8 @@ def _is_finished_basecalling_read(directory, readno):
 def _do_initial_processing(directory):
     """Determine if the initial processing actions should be run
     """
-    # A miseq run does not generate a first base report 
-    return ((_is_miseq_run(directory) or 
+    # A miseq run does not generate a first base report
+    return ((_is_miseq_run(directory) or
              _is_finished_first_base_report(directory)) and
             not _is_started_initial_processing(directory))
 
@@ -789,7 +789,7 @@ def _is_miseq_run(fcdir):
     """
     if not _is_run_folder_name(os.path.basename(fcdir)):
         return False
-    
+
     # Assume that a HiSeq run folder ends with [AB][A-Z0-9]XX and that it is a MiSeq folder otherwise
     p = os.path.basename(fcdir).split("_")[-1]
     m = re.match(r'[AB][A-Z0-9]+XX',p)

@@ -12,6 +12,7 @@ import csv
 import codecs
 import cStringIO
 import gzip
+import glob
 from datetime import datetime
 from xml.etree import ElementTree as ET
 
@@ -273,7 +274,7 @@ def get_post_process_yaml(self):
         return sample
 
 
-def _flowcell_demux_summary(fc1, fc2):
+def merge_flowcell_demux_summary(u1, u2):
     """Merge two Flowcell_Demux_Summary.xml files.
 
     It assumes the structure:
@@ -288,19 +289,35 @@ def _flowcell_demux_summary(fc1, fc2):
     Where X is the lane number [1-8].
 
     Also assumes that indexes of different length are run in different lanes.
+
+    :param: u1: Unaligned directory where to find the fist file
+    :patam: u2: Unaligned directory where to find the second file
     """
-    pass
-
-
-def merge_flowcell_demux_summary(fc_dir):
-    """Merge two or more Flowcell_Demux_Summary.xml
-
-    :param: :fc_dir: Directory of the flowcell.
-    """
+    #Return the merged XML tree, mainly for testing purposes
     return ET.ElementTree(ET.Element('Test'))
+
+
+def merge_demux_results(fc_dir):
+    """Merge results of demultiplexing from different Unaligned_Xbp folders
+    """
+    #First, merge the files Flowcell_demux_summary.py
+    unaligned_dirs = glob.glob(os.path.join(fc_dir, 'Unaligned*'))
+    if len(unaligned_dirs) > 1:
+        #There are at least 2 Unaligned_XXbp folders, merge them in a common
+        #Unaligned folder
+        merged = os.path.join(fc_dir, 'Unaligned')
+        safe_makedir(merged)
+        merge_flowcell_demux_summary(unaligned_dirs[0], unaligned_dirs[1])
+        for u in unaligned_dirs[2:]:
+            merge_flowcell_demux_summary(merged, u)
+    else:
+        #There is only one Unaligned folder, but it is named Unaligned_Xbp
+        os.rename(unaligned_dirs[0], 'Unaligned')
+
 
 # UTF-8 methods for csv module (does not support it in python >2.7)
 # http://docs.python.org/library/csv.html#examples
+
 
 class UTF8Recoder:
     """Iterator that reads an encoded stream and reencodes the input to UTF-8
