@@ -1,3 +1,9 @@
+## DEPRECATION WARNING
+
+This repository has been deprecated in favor of: <a href="https://github.com/SciLifeLab/bcbio-nextgen">https://github.com/SciLifeLab/bcbio-nextgen</a>.
+
+Please use that instead.
+
 ## Overview
 
 Python scripts and modules for automated next gen sequencing analysis.
