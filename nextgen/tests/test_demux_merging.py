@@ -1,39 +1,59 @@
 import os
 import unittest
+import logging
+import sys
+import re
 from xml.etree import ElementTree as ET
 from xml.etree.ElementTree import tostring
+from os.path import join as pjoin
 
-from bcbio.utils import merge_flowcell_demux_summary
+from bcbio.utils import merge_demux_results
 
 
 class DemuxFilesMerging(unittest.TestCase):
     """Test all functions to merge Demultiplexing result files.
     """
-
     def setUp(self):
-        self.fc_dir = os.path.join(os.path.dirname(__file__), "data",
-                                   "110221_empty_FC12345AAXX")
+        #Set up logging
+        FORMAT = '[%(asctime)s] %(message)s'
+        logging.basicConfig(format=FORMAT, level = logging.INFO)
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(FORMAT))
+        self.logger = logging.getLogger('Logger')
+        self.logger.setLevel(logging.INFO)
+        self.logger.addHandler(handler)
+
+        #Common vars
+        self.fc_dir = pjoin(os.path.dirname(__file__), "data",
+                                   "130801_test_demux_AFC12345AAXX")
+        self.unaligned_expected = pjoin(self.fc_dir, '_Unaligned_expected')
+        self.unaligned = pjoin(self.fc_dir, 'Unaligned')
+        self.fc_id = os.path.basename(self.fc_dir).split('_')[-1][1:]
+        self.basecall_dir = 'Basecall_Stats_{}'.format(self.fc_id)
         self.expected_flowcell_demux_summary = ET.parse(
-            os.path.join(self.fc_dir, 'Unaligned', 'Basecall_Stats_FC12345AAXX',
+            pjoin(self.unaligned_expected, self.basecall_dir,
                          'Flowcell_demux_summary.xml'))
 
-    def _compare_flowcell_demux_summary(self, fc1, fc2):
+    def _compare_flowcell_demux_summary(self):
         """Compare the elements in two Flowcell_demux_summary.xml files.
-
-        The children can be in any order, they should have exactly 8 lanes in
-        total.
         """
         #The expected file is already sorted by lane, but we have to sort the
         #merged one in order to compare them
-        r_expected = fc1.getroot()
-        r_merged = fc2.getroot()
-        #And we have to sort by attribute of the ElementTree
-        r_merged.getchildren().sort(key=lambda x: x.attrib)
-        return tostring(r_expected) == tostring(r_merged)
+        fc1 = ET.parse(pjoin(self.unaligned, self.basecall_dir,
+            'Flowcell_demux_summary.xml'))
+        fc2 = ET.parse(pjoin(self.unaligned_expected, self.basecall_dir,
+            'Flowcell_demux_summary.xml'))
+        r_merged = fc1.getroot()
+        r_expected = fc2.getroot()
+        #remove spaces and newline characters to compare just the content of the
+        #XML
+        return re.sub('\s+', '', tostring(r_expected)).strip() == \
+                        re.sub('\s+', '', tostring(r_merged)).strip()
 
-    def test_1_test_merge_flowcell_demux_stats(self):
-        """Test merging Flowcell_demux_summary.xml files.
+    def test_merge_unaligned_folder(self):
+        """Merging Unaligned folders and comparing the results with the expected
         """
-        merged = merge_flowcell_demux_summary(self.fc_dir)
-        self.assertTrue(self._compare_flowcell_demux_summary(
-            self.expected_flowcell_demux_summary, merged))
+        self.logger.info("Merging Unaligned folders")
+        merge_demux_results(self.fc_dir)
+        self.logger.info("Checking the file Flowcell_demux_summary.xml")
+        self.assertTrue(self._compare_flowcell_demux_summary())

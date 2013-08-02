@@ -15,6 +15,7 @@ import gzip
 import glob
 from datetime import datetime
 from xml.etree import ElementTree as ET
+from itertools import izip_longest
 
 try:
     import multiprocessing
@@ -274,7 +275,7 @@ def get_post_process_yaml(self):
         return sample
 
 
-def merge_flowcell_demux_summary(u1, u2):
+def merge_flowcell_demux_summary(u1, u2, fc_id):
     """Merge two Flowcell_Demux_Summary.xml files.
 
     It assumes the structure:
@@ -292,24 +293,49 @@ def merge_flowcell_demux_summary(u1, u2):
 
     :param: u1: Unaligned directory where to find the fist file
     :patam: u2: Unaligned directory where to find the second file
+    :param: fc_id: Flowcell id
     """
-    #Return the merged XML tree, mainly for testing purposes
-    return ET.ElementTree(ET.Element('Test'))
+    #Read the XML to merge
+    fc1_f = os.path.join(u1, 'Basecall_Stats_{}'.format(fc_id),
+            'Flowcell_demux_summary.xml')
+    fc2_f = os.path.join(u2, 'Basecall_Stats_{}'.format(fc_id),
+            'Flowcell_demux_summary.xml')
+    fc1 = ET.parse(fc1_f).getroot()
+    fc2 = ET.parse(fc2_f).getroot()
+
+    #Create a new one and merge there
+    merged = ET.ElementTree(ET.Element('Summary'))
+    merged_r = merged.getroot()
+    lanes = merged_r.getchildren()
+    for l1, l2 in izip_longest(fc1.getchildren(), fc2.getchildren()):
+        lanes.append(l1) if l1 is not None else []
+        lanes.append(l2) if l2 is not None else []
+
+    #Sort the children by lane number and return the merged file
+    lanes.sort(key= lambda x: x.attrib['index'])
+    return merged
 
 
 def merge_demux_results(fc_dir):
     """Merge results of demultiplexing from different Unaligned_Xbp folders
     """
-    #First, merge the files Flowcell_demux_summary.py
-    unaligned_dirs = glob.glob(os.path.join(fc_dir, 'Unaligned*'))
+    #First, merge the files Flowcell_demux_summary.xml
+    unaligned_dirs = glob.glob(os.path.join(fc_dir, 'Unaligned_*'))
+    fc_id = os.path.basename(fc_dir).split('_')[-1][1:]
+    basecall_dir = 'Basecall_Stats_{}'.format(fc_id)
     if len(unaligned_dirs) > 1:
         #There are at least 2 Unaligned_XXbp folders, merge them in a common
         #Unaligned folder
-        merged = os.path.join(fc_dir, 'Unaligned')
-        safe_makedir(merged)
-        merge_flowcell_demux_summary(unaligned_dirs[0], unaligned_dirs[1])
+        merged_dir = os.path.join(fc_dir, 'Unaligned')
+        safe_makedir(os.path.join(merged_dir, basecall_dir))
+        m_flowcell_demux = merge_flowcell_demux_summary(unaligned_dirs[0],
+                unaligned_dirs[1], fc_id)
+        m_flowcell_demux.write(os.path.join(merged_dir, basecall_dir,
+            'Flowcell_demux_summary.xml'))
         for u in unaligned_dirs[2:]:
-            merge_flowcell_demux_summary(merged, u)
+            m_flowcell_demux = merge_flowcell_demux_summary(merged_dir, u, fc_id)
+            m_flowcell_demux.write(os.path.join(merged_dir, basecall_dir,
+                            'Flowcell_demux_summary.xml'))
     else:
         #There is only one Unaligned folder, but it is named Unaligned_Xbp
         os.rename(unaligned_dirs[0], 'Unaligned')
