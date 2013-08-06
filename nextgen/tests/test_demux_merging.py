@@ -70,7 +70,6 @@ class DemuxFilesMerging(unittest.TestCase):
         return re.sub('\s+', '', ds_merged.renderContents()) == \
                         re.sub('\s+', '', ds_expected.renderContents())
 
-    @attr("standard")
     def test_merge_unaligned_folder(self):
         """Merging Unaligned folders and comparing the results with the expected
         """
