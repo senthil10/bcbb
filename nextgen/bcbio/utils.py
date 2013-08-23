@@ -300,9 +300,9 @@ def merge_flowcell_demux_summary(u1, u2, fc_id):
     :return: merged: ElementTree resulting of merging both files.
     """
     #Read the XML to merge
-    fc1_f = os.path.join(u1, 'Basecall_Stats_{}'.format(fc_id),
+    fc1_f = os.path.join(u1, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
             'Flowcell_demux_summary.xml')
-    fc2_f = os.path.join(u2, 'Basecall_Stats_{}'.format(fc_id),
+    fc2_f = os.path.join(u2, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
             'Flowcell_demux_summary.xml')
     fc1 = ET.parse(fc1_f).getroot()
     fc2 = ET.parse(fc2_f).getroot()
@@ -336,10 +336,10 @@ def merge_demultiplex_stats(u1, u2, fc_id):
 
     :return: merged: BeautifulSoup object representing the merging of both files.
     """
-    with open(os.path.join(u1, 'Basecall_Stats_{}'.format(fc_id),
+    with open(os.path.join(u1, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
             'Demultiplex_Stats.htm')) as f:
         ds1 = BeautifulSoup(f.read())
-    with open(os.path.join(u2, 'Basecall_Stats_{}'.format(fc_id),
+    with open(os.path.join(u2, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
             'Demultiplex_Stats.htm')) as f:
         ds2 = BeautifulSoup(f.read())
 
@@ -369,7 +369,7 @@ def merge_demux_results(fc_dir):
     """
     unaligned_dirs = glob.glob(os.path.join(fc_dir, 'Unaligned_*'))
     fc_id = os.path.basename(fc_dir).split('_')[-1][1:]
-    basecall_dir = 'Basecall_Stats_{}'.format(fc_id)
+    basecall_dir = 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id)
     if len(unaligned_dirs) > 1:
         #There are at least 2 Unaligned_XXbp folders, merge them in a common
         #Unaligned folder
