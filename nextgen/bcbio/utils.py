@@ -368,7 +368,12 @@ def merge_demux_results(fc_dir):
     """Merge results of demultiplexing from different Unaligned_Xbp folders
     """
     unaligned_dirs = glob.glob(os.path.join(fc_dir, 'Unaligned_*'))
-    fc_id = os.path.basename(fc_dir).split('_')[-1][1:]
+    #If it is a MiSeq run, the fc_id will be everything after the -
+    if '-' in os.path.basename(fc_dir):
+        fc_id = os.path.basename(fc_dir).split('_')[-1]
+    #If it is a HiSeq run, we only want the flowcell id (without A/B)
+    else:
+        fc_id = os.path.basename(fc_dir).split('_')[-1][1:]
     basecall_dir = 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id)
     if len(unaligned_dirs) > 1:
         #There are at least 2 Unaligned_XXbp folders, merge them in a common
