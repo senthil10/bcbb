@@ -379,19 +379,14 @@ def merge_demux_results(fc_dir):
         #There are at least 2 Unaligned_XXbp folders, merge them in a common
         #Unaligned folder
         merged_dir = os.path.join(fc_dir, 'Unaligned')
+        merged_basecall_dir = os.path.join(merged_dir, basecall_dir)
         safe_makedir(os.path.join(merged_dir, basecall_dir))
-        #Merge Flowcell_demux_summary.xml
-        m_flowcell_demux = merge_flowcell_demux_summary(unaligned_dirs[0],
-                unaligned_dirs[1], fc_id)
-        m_flowcell_demux.write(os.path.join(merged_dir, basecall_dir,
-            'Flowcell_demux_summary.xml'))
-        #Merge Demultiplex_Stats.htm
-        m_demultiplex_stats = merge_demultiplex_stats(unaligned_dirs[0],
-                unaligned_dirs[1], fc_id)
-        with open(os.path.join(merged_dir, basecall_dir, 'Demultiplex_Stats.htm'), 'w+') as f:
-            f.writelines(m_demultiplex_stats.renderContents())
+        shutil.copy(os.path.join(unaligned_dirs[0], basecall_dir,
+                        'Flowcell_demux_summary.xml'), merged_basecall_dir)
+        shutil.copy(os.path.join(unaligned_dirs[0], basecall_dir,
+                        'Demultiplex_Stats.htm'), merged_basecall_dir)
 
-        for u in unaligned_dirs[2:]:
+        for u in unaligned_dirs[1:]:
             m_flowcell_demux = merge_flowcell_demux_summary(merged_dir, u, fc_id)
             m_flowcell_demux.write(os.path.join(merged_dir, basecall_dir,
                             'Flowcell_demux_summary.xml'))
