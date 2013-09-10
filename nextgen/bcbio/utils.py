@@ -388,8 +388,6 @@ def merge_demux_results(fc_dir):
         #Merge Demultiplex_Stats.htm
         m_demultiplex_stats = merge_demultiplex_stats(unaligned_dirs[0],
                 unaligned_dirs[1], fc_id)
-        #Before writing, change the name of the sample directories to match the
-        #current directory.
         with open(os.path.join(merged_dir, basecall_dir, 'Demultiplex_Stats.htm'), 'w+') as f:
             f.writelines(m_demultiplex_stats.renderContents())
 
