@@ -391,8 +391,7 @@ def merge_demux_results(fc_dir):
         #Before writing, change the name of the sample directories to match the
         #current directory.
         with open(os.path.join(merged_dir, basecall_dir, 'Demultiplex_Stats.htm'), 'w+') as f:
-            f.writelines(re.sub(r"Unaligned_[0-9]{1,2}bp", 'Unaligned',
-                m_demultiplex_stats.renderContents()))
+            f.writelines(m_demultiplex_stats.renderContents())
 
         for u in unaligned_dirs[2:]:
             m_flowcell_demux = merge_flowcell_demux_summary(merged_dir, u, fc_id)
