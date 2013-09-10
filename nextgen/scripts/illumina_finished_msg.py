@@ -200,6 +200,8 @@ def process_second_read(*args, **kwargs):
         if not kwargs.get("no_casava_processing", False):
             logger2.info("Generating fastq.gz files for {:s}".format(dname))
             _generate_fastq_with_casava(dname, config)
+            # Merge demultiplexing results into a single Unaligned folder
+            utils.merge_demux_results(dname)
 
     else:
         _process_samplesheets(dname, config)
