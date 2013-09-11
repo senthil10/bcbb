@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<Summary>
+  <Lane index="1">
+    <Sample index="lane1">
+    </Sample>
+  </Lane>
+  <Lane index="7">
+    <Sample index="lane7">
+    </Sample>
+  </Lane>
+</Summary>

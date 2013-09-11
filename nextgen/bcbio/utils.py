@@ -12,7 +12,12 @@ import csv
 import codecs
 import cStringIO
 import gzip
+import glob
+import re
 from datetime import datetime
+from xml.etree import ElementTree as ET
+from itertools import izip_longest
+from bs4 import BeautifulSoup
 
 try:
     import multiprocessing
@@ -203,7 +208,7 @@ def add_full_path(dirname, basedir=None):
 def compress_files(to_compress):
     """Compress all the files in the set to_compress
     """
-    #This local import prevents a circular import, since since transaction import 
+    #This local import prevents a circular import, since since transaction import
     #utils, and then utils imports transaction
     from bcbio.distributed.transaction import file_transaction
     raw_size = 0
@@ -249,7 +254,7 @@ def utc_time():
     Borrowed from scilifelab.utils.timestamp
     """
     return str(datetime.utcnow()) + 'Z'
-    
+
 
 def touch_indicator_file(fname, force=False):
     """Write the current timestamp to the specified file. If it exists, append
@@ -262,6 +267,7 @@ def touch_indicator_file(fname, force=False):
         out_handle.write("{}\n".format(utc_time()))
     return fname
 
+
 def get_post_process_yaml(self):
     std = os.path.join(self.data_dir, "post_process.yaml")
     sample = os.path.join(self.data_dir, "post_process-sample.yaml")
@@ -271,8 +277,132 @@ def get_post_process_yaml(self):
         return sample
 
 
+def merge_flowcell_demux_summary(u1, u2, fc_id):
+    """Merge two Flowcell_Demux_Summary.xml files.
+
+    It assumes the structure:
+    <Summary>
+        <Lane index="X">
+           .
+           .
+           .
+        </Lane index="X">
+    </Summary>
+
+    Where X is the lane number [1-8].
+
+    Also assumes that indexes of different length are run in different lanes.
+
+    :param: u1: Unaligned directory where to find the fist file
+    :patam: u2: Unaligned directory where to find the second file
+    :param: fc_id: Flowcell id
+
+    :return: merged: ElementTree resulting of merging both files.
+    """
+    #Read the XML to merge
+    fc1_f = os.path.join(u1, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
+            'Flowcell_demux_summary.xml')
+    fc2_f = os.path.join(u2, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
+            'Flowcell_demux_summary.xml')
+    fc1 = ET.parse(fc1_f).getroot()
+    fc2 = ET.parse(fc2_f).getroot()
+
+    #Create a new one and merge there
+    merged = ET.ElementTree(ET.Element('Summary'))
+    merged_r = merged.getroot()
+    lanes = merged_r.getchildren()
+    for l1, l2 in izip_longest(fc1.getchildren(), fc2.getchildren()):
+        lanes.append(l1) if l1 is not None else []
+        lanes.append(l2) if l2 is not None else []
+
+    #Sort the children by lane number and return the merged file
+    lanes.sort(key= lambda x: x.attrib['index'])
+    return merged
+
+
+def merge_demultiplex_stats(u1, u2, fc_id):
+    """Merge two Demultiplex_Stats.htm files.
+
+    Will append to the Demultiplex_Stats.htm file in u1 the Barcode Lane
+    Statistics and Sample Information found in Demultiplex_Stats.htm file in u2.
+
+    The htm file should be structured in such a way that it has two tables (in
+    this order): Barcode Lane Statistics and Sample Information. The tables have
+    an attribute 'id' which value is ScrollableTableBodyDiv.
+
+    :param: u1: Unaligned directory where to find the fist file
+    :patam: u2: Unaligned directory where to find the second file
+    :param: fc_id: Flowcell id
+
+    :return: merged: BeautifulSoup object representing the merging of both files.
+    """
+    with open(os.path.join(u1, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
+            'Demultiplex_Stats.htm')) as f:
+        ds1 = BeautifulSoup(f.read())
+    with open(os.path.join(u2, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
+            'Demultiplex_Stats.htm')) as f:
+        ds2 = BeautifulSoup(f.read())
+
+    #Get the information from the HTML files
+    barcode_lane_statistics_u1, sample_information_u1 = ds1.find_all('div',
+        attrs={'id':'ScrollableTableBodyDiv'})
+    barcode_lane_statistics_u2, sample_information_u2 = ds2.find_all('div',
+        attrs={'id':'ScrollableTableBodyDiv'})
+
+    #Append to the end (tr is the HTML tag under the <div> tag that delimites
+    #the sample and barcode statistics information)
+    for sample in barcode_lane_statistics_u1.find_all('tr'):
+        last_sample = sample
+    [last_sample.append(new_sample) for new_sample in \
+        barcode_lane_statistics_u2.find_all('tr')]
+
+    for sample in sample_information_u1.find_all('tr'):
+        last_sample = sample
+    [last_sample.append(new_sample) for new_sample in \
+        sample_information_u2.find_all('tr')]
+
+    return ds1
+
+
+def merge_demux_results(fc_dir):
+    """Merge results of demultiplexing from different Unaligned_Xbp folders
+    """
+    unaligned_dirs = glob.glob(os.path.join(fc_dir, 'Unaligned_*'))
+    #If it is a MiSeq run, the fc_id will be everything after the -
+    if '-' in os.path.basename(fc_dir):
+        fc_id = os.path.basename(fc_dir).split('_')[-1]
+    #If it is a HiSeq run, we only want the flowcell id (without A/B)
+    else:
+        fc_id = os.path.basename(fc_dir).split('_')[-1][1:]
+    basecall_dir = 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id)
+    if len(unaligned_dirs) > 1:
+        #There are at least 2 Unaligned_XXbp folders, merge them in a common
+        #Unaligned folder
+        merged_dir = os.path.join(fc_dir, 'Unaligned')
+        merged_basecall_dir = os.path.join(merged_dir, basecall_dir)
+        safe_makedir(os.path.join(merged_dir, basecall_dir))
+        shutil.copy(os.path.join(unaligned_dirs[0], basecall_dir,
+                        'Flowcell_demux_summary.xml'), merged_basecall_dir)
+        shutil.copy(os.path.join(unaligned_dirs[0], basecall_dir,
+                        'Demultiplex_Stats.htm'), merged_basecall_dir)
+
+        for u in unaligned_dirs[1:]:
+            m_flowcell_demux = merge_flowcell_demux_summary(merged_dir, u, fc_id)
+            m_flowcell_demux.write(os.path.join(merged_dir, basecall_dir,
+                            'Flowcell_demux_summary.xml'))
+
+            m_demultiplex_stats = merge_demultiplex_stats(merged_dir, u, fc_id)
+            with open(os.path.join(merged_dir, basecall_dir, 'Demultiplex_Stats.htm'), 'w+') as f:
+                f.writelines(re.sub(r"Unaligned_[0-9]{1,2}bp", 'Unaligned',
+                    m_demultiplex_stats.renderContents()))
+    else:
+        #There is only one Unaligned folder, but it is named Unaligned_Xbp
+        os.rename(unaligned_dirs[0], 'Unaligned')
+
+
 # UTF-8 methods for csv module (does not support it in python >2.7)
 # http://docs.python.org/library/csv.html#examples
+
 
 class UTF8Recoder:
     """Iterator that reads an encoded stream and reencodes the input to UTF-8
