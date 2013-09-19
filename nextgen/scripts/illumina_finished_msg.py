@@ -909,6 +909,7 @@ def _files_to_copy(directory):
     reports = ["Data/Intensities/BaseCalls/*.xml", \
                 "Data/Intensities/BaseCalls/*.xsl", \
                 "Data/Intensities/BaseCalls/*.htm", \
+                "Unaligned*/*.xml", \
                 "Unaligned*/Basecall_Stats_*/*", \
                 "Unaligned*/Basecall_Stats_*/**/*", \
                 "Data/Intensities/BaseCalls/Plots", \
