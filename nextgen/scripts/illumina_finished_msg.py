@@ -367,7 +367,9 @@ def simple_upload(remote_info, data):
 
     cl = ["rsync", \
           "--checksum", \
-          "--archive", \
+          "--recursive", \
+          "--links", \
+          "-D", \
           "--partial", \
           "--progress", \
           "--prune-empty-dirs"
