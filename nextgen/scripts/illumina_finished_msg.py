@@ -29,7 +29,6 @@ import getpass
 import subprocess
 import time
 import sys
-import ConfigParser
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
 import re
