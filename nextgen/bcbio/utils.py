@@ -397,7 +397,7 @@ def merge_demux_results(fc_dir):
                     m_demultiplex_stats.renderContents()))
     else:
         #There is only one Unaligned folder, but it is named Unaligned_Xbp
-        os.rename(unaligned_dirs[0], 'Unaligned')
+        shutil.move(unaligned_dirs[0], 'Unaligned')
 
 
 # UTF-8 methods for csv module (does not support it in python >2.7)
