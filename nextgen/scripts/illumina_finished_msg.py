@@ -29,6 +29,7 @@ import getpass
 import subprocess
 import time
 import sys
+import ConfigParser
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
 import re
@@ -37,6 +38,8 @@ from shutil import copyfile
 from itertools import izip
 
 import logbook
+from logbook.queues import RedisHandler
+import redis
 
 from bcbio.solexa import samplesheet
 from bcbio.log import create_log_handler, logger2
@@ -51,12 +54,29 @@ try:
 except ImportError:
     pass
 
+
 LOG_NAME = os.path.splitext(os.path.basename(__file__))[0]
-log = logbook.Logger(LOG_NAME)
+log = logbook.Logger(LOG_NAME, level=logbook.INFO)
+
+#Try loading settings for Redis/Logstash
+try:
+    LOGBOOK_CONFIG = os.path.join(os.environ.get('HOME'), '.logbook')
+    config = ConfigParser.SafeConfigParser()
+    config.read(LOGBOOK_CONFIG)
+    redis_host = config.get('Redis', 'host')
+    redis_port = int(config.get('Redis', 'port'))
+    redis_key = config.get('Redis', 'key')
+    redis_password = config.get('Redis', 'password')
+    redis_handler = RedisHandler(host=redis_host, port=redis_port,
+            key=redis_key, password=redis_password)
+    log.handlers.append(redis_handler)
+except:
+    log.warn('Could not configure Redis handler, NOT logging into Logstash!')
 
 
 def main(*args, **kwargs):
     local_config = args[0]
+    print local_config
     post_process_config = args[1] if len(args) > 1 else None
     kwargs["post_process_config"] = post_process_config
     config = load_config(local_config)
