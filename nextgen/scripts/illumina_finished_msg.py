@@ -38,8 +38,6 @@ from shutil import copyfile
 from itertools import izip
 
 import logbook
-from logbook.queues import RedisHandler
-import redis
 
 from bcbio.solexa import samplesheet
 from bcbio.log import create_log_handler, logger2
@@ -62,7 +60,7 @@ def main(*args, **kwargs):
     config = load_config(local_config)
 
     log_handler = create_log_handler(config, True)
-    with log_handler.applicationbound():
+    with log_handler.threadbound():
         search_for_new(config, local_config, **kwargs)
 
 

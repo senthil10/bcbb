@@ -4,6 +4,8 @@ import os
 import sys
 import datetime
 import logging
+import redis
+from logbook.queues import RedisHandler
 import logbook
 from bcbio import utils
 
@@ -59,10 +61,10 @@ def create_log_handler(config, batch_records=False):
 
     if redis:
         try:
-            redis_host = config.get('Redis').get('host')
-            redis_port = int(config.get('Redis').get('port'))
-            redis_key = config.get('Redis').get('key')
-            redis_password = config.get('Redis').get('password')
+            redis_host = config.get('redis_handler').get('host')
+            redis_port = int(config.get('redis_handler').get('port'))
+            redis_key = config.get('redis_handler').get('key')
+            redis_password = config.get('redis_handler').get('password')
             redis_handler = RedisHandler(host=redis_host, port=redis_port,
                 key=redis_key, password=redis_password)
             handlers.append(redis_handler)
