@@ -67,4 +67,5 @@ setup(name="bcbio-nextgen",
           "drmaa >= 0.5",
           "couchdb >= 0.8",
           "BeautifulSoup4",
+          "redis",
       ])
