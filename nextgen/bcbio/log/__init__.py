@@ -69,7 +69,8 @@ def create_log_handler(config, batch_records=False):
                 key=redis_key, password=redis_password)
             handlers.append(redis_handler)
         except:
-            pass
+            logger2.warn("Failed loading Redis handler, please check your \
+                    configuration and the connectivity to your Redis Database")
 
     if config.get("debug", False):
         for handler in handlers:
