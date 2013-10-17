@@ -202,6 +202,34 @@ def process_second_read(*args, **kwargs):
             _generate_fastq_with_casava(dname, config)
             # Merge demultiplexing results into a single Unaligned folder
             utils.merge_demux_results(dname)
+            #Move the demultiplexing results
+            if config.has_key('mfs_dir'):
+
+                cl = ["rsync", \
+                      "--checksum", \
+                      "--recursive", \
+                      "--links", \
+                      "-D", \
+                      "--partial", \
+                      "--progress", \
+                      "--prune-empty-dirs", \
+                      os.path.join(dname, 'Unaligned'), \
+                      os.path.join(config.has_key('mfs_dir'), dname
+                      ]
+                logger2.info("Synching Unaligned folder to MooseFS")
+                logdir = os.path.join(config.get('log_dir'), os.getcwd())
+                rsync_out = os.path.join(logdir,"rsync_transfer.out")
+                rsync_err = os.path.join(logdir,"rsync_transfer.err")
+
+                with open(rsync_out, 'a') as ro:
+                    with open(rsync_err, 'a') as re:
+                        try:
+                            ro.write("-----------\n{}\n".format(" ".join(cl)))
+                            re.write("-----------\n{}\n".format(" ".join(cl)))
+                            subprocess.check_call(cl, stdout=ro, stderr=re)
+                        except subprocess.CalledProcessError, e:
+                            logger2.error("rsync transfer of Unaligned results FAILED")
+
 
     else:
         _process_samplesheets(dname, config)
