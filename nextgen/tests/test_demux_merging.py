@@ -70,6 +70,19 @@ class DemuxFilesMerging(unittest.TestCase):
         return re.sub('\s+', '', ds_merged.renderContents()) == \
                         re.sub('\s+', '', ds_expected.renderContents())
 
+
+    def _compare_undemultiplexed_stats(self):
+        """Compare if two Undemultiplexed_stats.metrics are equal
+        """
+        with open(pjoin(self.unaligned, self.basecall_dir,
+            'Undemultiplexed_stats.metrics')) as f:
+            us_merged = f.readlines()
+        with open(pjoin(self.unaligned_expected, self.basecall_dir,
+            'Undemultiplexed_stats.metrics')) as f:
+            us_expected = f.readlines()
+        return us_merged == us_expected
+
+
     def test_merge_unaligned_folder(self):
         """Merging Unaligned folders and comparing the results with the expected
         """
@@ -81,3 +94,6 @@ class DemuxFilesMerging(unittest.TestCase):
         self.logger.info("Testing the merging of Demultiplex_Stats.htm")
         self.assertTrue(self._compare_demultiplex_stats(),
             "The resulting file Demultiplex_Stats.htm is not as expected.")
+        self.logger.info("Testing the merging of Undemultiplexed_stats.metrics")
+        self.assertTrue(self._compare_undemultiplexed_stats(),
+            "The resulting file Undemultiplexed_stats.metrics is not as expected")
