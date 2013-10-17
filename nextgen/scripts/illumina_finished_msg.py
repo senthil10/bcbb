@@ -214,7 +214,7 @@ def process_second_read(*args, **kwargs):
                       "--progress", \
                       "--prune-empty-dirs", \
                       os.path.join(dname, 'Unaligned'), \
-                      os.path.join(config.has_key('mfs_dir'), dname)
+                      os.path.join(config.get('mfs_dir'), dname)
                       ]
                 logger2.info("Synching Unaligned folder to MooseFS")
                 logdir = os.path.join(config.get('log_dir'), os.getcwd())
