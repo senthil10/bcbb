@@ -51,9 +51,6 @@ try:
 except ImportError:
     pass
 
-LOG_NAME = os.path.splitext(os.path.basename(__file__))[0]
-log = logbook.Logger(LOG_NAME)
-
 
 def main(*args, **kwargs):
     local_config = args[0]
@@ -62,7 +59,7 @@ def main(*args, **kwargs):
     config = load_config(local_config)
 
     log_handler = create_log_handler(config, True)
-    with log_handler.applicationbound():
+    with log_handler.threadbound():
         search_for_new(config, local_config, **kwargs)
 
 
