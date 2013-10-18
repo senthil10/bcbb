@@ -364,6 +364,17 @@ def merge_demultiplex_stats(u1, u2, fc_id):
     return ds1
 
 
+def merge_undemultiplexed_stats_metrics(u1, u2, fc_id):
+    """Merge two Undemultiplexed_stats.metrics files.
+    """
+    with open(os.path.join(u1, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
+            'Undemultiplexed_stats.metrics'), 'a') as us1:
+        with open(os.path.join(u2, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
+                'Undemultiplexed_stats.metrics')) as us2:
+            for l in us2.readlines()[1:]:
+                us1.writelines(l)
+
+
 def merge_demux_results(fc_dir):
     """Merge results of demultiplexing from different Unaligned_Xbp folders
     """
@@ -375,30 +386,31 @@ def merge_demux_results(fc_dir):
     else:
         fc_id = os.path.basename(fc_dir).split('_')[-1][1:]
     basecall_dir = 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id)
+    merged_dir = os.path.join(fc_dir, 'Unaligned')
+    merged_basecall_dir = os.path.join(merged_dir, basecall_dir)
+    #Create the final Unaligned folder and copy there all configuration files
+    safe_makedir(os.path.join(merged_dir, basecall_dir))
+    shutil.copy(os.path.join(unaligned_dirs[0], basecall_dir,
+                    'Flowcell_demux_summary.xml'), merged_basecall_dir)
+    shutil.copy(os.path.join(unaligned_dirs[0], basecall_dir,
+                    'Demultiplex_Stats.htm'), merged_basecall_dir)
+    shutil.copy(os.path.join(unaligned_dirs[0], basecall_dir,
+                    'Undemultiplexed_stats.metrics'), merged_basecall_dir)
     if len(unaligned_dirs) > 1:
-        #There are at least 2 Unaligned_XXbp folders, merge them in a common
-        #Unaligned folder
-        merged_dir = os.path.join(fc_dir, 'Unaligned')
-        merged_basecall_dir = os.path.join(merged_dir, basecall_dir)
-        safe_makedir(os.path.join(merged_dir, basecall_dir))
-        shutil.copy(os.path.join(unaligned_dirs[0], basecall_dir,
-                        'Flowcell_demux_summary.xml'), merged_basecall_dir)
-        shutil.copy(os.path.join(unaligned_dirs[0], basecall_dir,
-                        'Demultiplex_Stats.htm'), merged_basecall_dir)
-
         for u in unaligned_dirs[1:]:
+            #Merge Flowcell_demux_summary.xml
             m_flowcell_demux = merge_flowcell_demux_summary(merged_dir, u, fc_id)
             m_flowcell_demux.write(os.path.join(merged_dir, basecall_dir,
                             'Flowcell_demux_summary.xml'))
 
+            #Merge Demultiplex_Stats.htm
             m_demultiplex_stats = merge_demultiplex_stats(merged_dir, u, fc_id)
             with open(os.path.join(merged_dir, basecall_dir, 'Demultiplex_Stats.htm'), 'w+') as f:
                 f.writelines(re.sub(r"Unaligned_[0-9]{1,2}bp", 'Unaligned',
                     m_demultiplex_stats.renderContents()))
-    else:
-        #There is only one Unaligned folder, but it is named Unaligned_Xbp
-        shutil.move(unaligned_dirs[0], 'Unaligned')
 
+            #Merge Undemultiplexed_stats.metrics
+            merge_undemultiplexed_stats_metrics(merged_dir, u, fc_id)
 
 # UTF-8 methods for csv module (does not support it in python >2.7)
 # http://docs.python.org/library/csv.html#examples
