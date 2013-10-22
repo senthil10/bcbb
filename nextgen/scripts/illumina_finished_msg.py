@@ -201,7 +201,7 @@ def process_second_read(*args, **kwargs):
             utils.merge_demux_results(dname)
             #Move the demultiplexing results
             if config.has_key('mfs_dir'):
-
+                fc_id = os.path.basename(dname)
                 cl = ["rsync", \
                       "--checksum", \
                       "--recursive", \
@@ -211,9 +211,9 @@ def process_second_read(*args, **kwargs):
                       "--progress", \
                       "--prune-empty-dirs", \
                       os.path.join(dname, 'Unaligned'), \
-                      os.path.join(config.get('mfs_dir'), dname)
+                      os.path.join(config.get('mfs_dir'), fc_id)
                       ]
-                logger2.info("Synching Unaligned folder to MooseFS")
+                logger2.info("Synching Unaligned folder to MooseFS for run {}".format(fc_id))
                 logdir = os.path.join(config.get('log_dir'), os.getcwd())
                 rsync_out = os.path.join(logdir,"rsync_transfer.out")
                 rsync_err = os.path.join(logdir,"rsync_transfer.err")
