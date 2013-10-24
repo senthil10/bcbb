@@ -4,6 +4,8 @@ import os
 import sys
 import datetime
 import logging
+import redis
+from logbook.queues import RedisHandler
 import logbook
 from bcbio import utils
 
@@ -34,13 +36,14 @@ def create_log_handler(config, batch_records=False):
     log_dir = config.get("log_dir", None)
     email = config.get("email", None)
     rabbitmq = config.get("rabbitmq_logging", None)
+    redis = config.get("redis_handler", None)
+    handlers = []
 
     if log_dir:
         utils.safe_makedir(log_dir)
-        handler = logbook.FileHandler(os.path.join(log_dir, "%s.log" % LOG_NAME))
-
+        handlers.append(logbook.FileHandler(os.path.join(log_dir, "%s.log" % LOG_NAME)))
     else:
-        handler = logbook.StreamHandler(sys.stdout)
+        handlers.append(logbook.StreamHandler(sys.stdout))
 
     if email:
         smtp_host = config.get("smtp_host", None)
@@ -49,24 +52,36 @@ def create_log_handler(config, batch_records=False):
             smtp_host = [smtp_host, smtp_port]
 
         email = email.split(",")
-        handler = logbook.MailHandler(email[0], email, server_addr=smtp_host,
+        handlers.append(logbook.MailHandler(email[0], email, server_addr=smtp_host,
                                       format_string=u'''Subject: [BCBB pipeline] {record.extra[run]} \n\n {record.message}''',
-                                      level='INFO', bubble=True)
+                                      level='INFO', bubble=True))
     if rabbitmq:
         from logbook.queues import RabbitMQHandler
-        handler = RabbitMQHandler(rabbitmq["url"], queue=rabbitmq["log_queue"], bubble=True)
+        handlers.append(RabbitMQHandler(rabbitmq["url"], queue=rabbitmq["log_queue"], bubble=True))
 
-    if batch_records:
-        handler = logbook.handlers.GroupHandler(handler)
+    if redis:
+        try:
+            redis_host = config.get('redis_handler').get('host')
+            redis_port = int(config.get('redis_handler').get('port'))
+            redis_key = config.get('redis_handler').get('key')
+            redis_password = config.get('redis_handler').get('password')
+            redis_handler = RedisHandler(host=redis_host, port=redis_port,
+                key=redis_key, password=redis_password)
+            handlers.append(redis_handler)
+        except:
+            logger2.warn("Failed loading Redis handler, please check your \
+                    configuration and the connectivity to your Redis Database")
 
     if config.get("debug", False):
-        handler.level = logbook.DEBUG
+        for handler in handlers:
+            handler.level = logbook.DEBUG
         logger2.level = logbook.DEBUG
 
     else:
-        handler.level = logbook.INFO
+        for handler in handlers:
+            handler.level = logbook.INFO
 
-    return handler
+    return logbook.NestedSetup(handlers)
 
 
 class RecordProgress:
