@@ -27,7 +27,7 @@ def snpeff_effects(vcf_in, genome, config):
     """Prepare tab-delimited file for variant effects using snpEff.
     """
     interval_file = config["algorithm"].get("hybrid_target", None)
-    if _vcf_has_items(vcf_in):
+    if _vcf_has_items(vcf_in) and config["algorithm"].get("variation_effects",True):
         se_interval = (_convert_to_snpeff_interval(interval_file, vcf_in)
                        if interval_file else None)
         try:
