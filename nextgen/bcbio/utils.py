@@ -400,6 +400,15 @@ def merge_demux_results(fc_dir):
     if u_s_file:
         shutil.copy(os.path.join(unaligned_dirs[0], basecall_dir,
                     'Undemultiplexed_stats.metrics'), merged_basecall_dir)
+        #And it is possible that it is empty, in which case we have to add
+        #the header
+        u_s_file_final = os.path.join(merged_basecall_dir, 'Undemultiplexed_stats.metrics')
+        with open(u_s_file_final, 'r') as f:
+            content = f.readlines()
+            header = ['lane', 'sequence', 'count', 'index_name']
+            if content and content[0].split() != header:
+                with open(u_s_file_final, 'w') as final:
+                    final.writelines('\t'.join(header) + '\n')
     if len(unaligned_dirs) > 1:
         for u in unaligned_dirs[1:]:
             #Merge Flowcell_demux_summary.xml
