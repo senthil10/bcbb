@@ -268,7 +268,12 @@ def process_all(*args, **kwargs):
 def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
     """Extract the top N=25 barcodes from the undetermined indices output
     """
-    infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*", "*_R1_*.fastq.gz")
+
+    #If this is a single sample on a single lane
+    if re.search("0bp$", unaligned_dir):
+        infile_glob = os.path.join(unaligned_dir, "Project*", "Sample*","*_R[2-3]_*.fastq.gz")
+    else:
+        infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*", "*_R1_*.fastq.gz")
     infiles = glob.glob(infile_glob)
 
     # Only run as many simultaneous processes as number of cores specified in config
@@ -299,6 +304,10 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
             fh = open(metricfile, "w")
             cl = [config["program"]["extract_barcodes"], infile, lane,
                   '--nindex', 10]
+            #If needed, get indices from fastq raw sequeces starting at offset=0
+            if re.search("R2|R3", infile):
+                cl.append("--1.7")
+                cl.append("-o 0")
             p = subprocess.Popen([str(c) for c in cl], stdout=fh, stderr=fh)
             procs.append([p, fh, metricfile])
 
@@ -555,6 +564,11 @@ def _generate_fastq_with_casava_task(args):
         cl = ["make", "-j", str(num_cores)]
         if r1:
             cl.append("r1")
+            #make r2 (and r3) target fastq files if needed
+            if bp == 0 and _last_index_read(fc_dir) >= 2:
+                cl.append("r2")
+            if bp == 0 and _last_index_read(fc_dir) == 3:
+                cl.append("r3")
 
         logger2.info("Demultiplexing and converting bcl to fastq.gz")
         logger2.debug(cl)
@@ -913,7 +927,7 @@ def _get_bases_mask(directory):
                         bm.append('I' + cycles)
                         index_size = index_size - int(cycles)
                 else:
-                    bm.append('N' + cycles)
+                    bm.append('Y' + cycles)
         base_masks[group]['base_mask'] = bm
     return base_masks
 
