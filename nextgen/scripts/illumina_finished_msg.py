@@ -306,8 +306,11 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
                   '--nindex', 10]
             #If needed, get indices from fastq raw sequeces starting at offset=0
             if re.search("R2|R3", infile):
+                run_info = _get_read_configuration(fc_dir)
+                n_cycles = run_info[1]["NumCycles"]
                 cl.append("--1.7")
                 cl.append("-o 0")
+                cl.append("-b {}".format(n_cycles))
             p = subprocess.Popen([str(c) for c in cl], stdout=fh, stderr=fh)
             procs.append([p, fh, metricfile])
 
