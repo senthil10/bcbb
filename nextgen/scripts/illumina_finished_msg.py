@@ -33,7 +33,7 @@ from optparse import OptionParser
 import xml.etree.ElementTree as ET
 import re
 import csv
-from shutil import copyfile
+from shutil import copyfile, move
 from itertools import izip
 
 import logbook
@@ -196,7 +196,7 @@ def process_second_read(*args, **kwargs):
     if kwargs.get("casava", False):
         if not kwargs.get("no_casava_processing", False):
             logger2.info("Generating fastq.gz files for {:s}".format(dname))
-            _generate_fastq_with_casava(dname, config)
+            unaligned_dirs = _generate_fastq_with_casava(dname, config)
             # Merge demultiplexing results into a single Unaligned folder
             utils.merge_demux_results(dname)
             #Move the demultiplexing results
@@ -593,6 +593,47 @@ def _generate_fastq_with_casava_task(args):
         finally:
             co.close()
             ce.close()
+        
+        #Move R2 (and R3) fastq files to Undetermined_idices. And rename second read to R2
+        if not r1 and bp == 0:
+            indices = [int(read.get("Number")) for read in _get_read_configuration(fc_dir) if read.get("IsIndexedRead","") == "Y"]
+            sample_glob = os.path.join(unaligned_dir, "Project*","Sample*")
+            sample_dirs = glob.glob(sample_glob)
+
+            for sample_dir in sample_dirs:
+                index_files = []
+                #All index fastq files in Sample dir
+                for index in indices:
+                    index_glob = os.path.join(sample_dir, "*_R{}_*.fastq.gz".format(index))
+                    index_files.extend(glob.glob(index_glob))
+                
+                #Move to Undetermined_idices dir
+                for index_file in index_files:
+                    lane = re.search(r'_L0*(\d+)_', index_file).group(1)
+                    undetermined_dir = os.path.join("Undetermined_indices","Sample_lane{}".format(lane))
+                    utils.safe_makedir(undetermined_dir)
+                    try:
+                        move(index_file, undetermined_dir)
+                    except OSError, e:
+                        logger2.error(
+                            "Failed moving file {} to {}, error code: {}".format(index_file,
+                                                                                 undetermined_dir,
+                                                                                 e))
+                        raise e
+                # Rename R3/R4 to R2
+                last_read = _expected_reads(fc_dir) 
+                if last_read > indices[-1]:
+                    source = glob.glob(os.path.join(sample_dir, "*_R{}_*.fastq.gz".format(last_read)))
+                    destination = [source_file.replace("_R{}_".format(last_read), "_R2_") for source_file in source]
+                    src_dst = dict(zip(source,destination))
+                    try:
+                        for src, dst in src_dst.iteritems():
+                            os.rename(src, dst)
+                    except OSError, e:
+                        logger2.error("Failed renaming {} to {}, error code: {}".format(source,
+                                                                                        destination,
+                                                                                        e))
+                        raise e
 
     logger2.debug("Done")
     return unaligned_dir
