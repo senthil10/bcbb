@@ -365,15 +365,30 @@ def merge_demultiplex_stats(u1, u2, fc_id):
 
 
 def merge_undemultiplexed_stats_metrics(u1, u2, fc_id):
-    """Merge two Undemultiplexed_stats.metrics files.
+    """Merge and sort two Undemultiplexed_stats.metrics files.
     """
     with open(os.path.join(u1, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
-            'Undemultiplexed_stats.metrics'), 'a') as us1:
+            'Undemultiplexed_stats.metrics'), 'a+') as us1:
         with open(os.path.join(u2, 'Basecall_Stats_{fc_id}'.format(fc_id=fc_id),
                 'Undemultiplexed_stats.metrics')) as us2:
-            for l in us2.readlines()[1:]:
-                us1.writelines(l)
+            header = us1.readline()
+            lines = []
+            for line in us1.readlines():
+                lines.append(line.split())
+            for line in us2.readlines()[1:]:
+                lines.append(line.split())
 
+            # Sort first by index count in descending order, then by read number
+            lines = [[line[0], line[1], int(line[2])] for line in lines]
+            lines = sorted(lines, key = lambda count: count[2], reverse=True)
+            lines = sorted(lines, key = lambda read: read[0])
+
+            us1.seek(0)
+            us1.truncate()
+            us1.writelines(header)
+            for line in lines:
+                us1.writelines("\t".join(str(line_field) for line_field in line) + "\n")
+            
 
 def merge_demux_results(fc_dir):
     """Merge results of demultiplexing from different Unaligned_Xbp folders
