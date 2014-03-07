@@ -33,7 +33,7 @@ from optparse import OptionParser
 import xml.etree.ElementTree as ET
 import re
 import csv
-from shutil import copyfile
+from shutil import copyfile, move
 from itertools import izip
 
 import logbook
@@ -196,7 +196,7 @@ def process_second_read(*args, **kwargs):
     if kwargs.get("casava", False):
         if not kwargs.get("no_casava_processing", False):
             logger2.info("Generating fastq.gz files for {:s}".format(dname))
-            _generate_fastq_with_casava(dname, config)
+            unaligned_dirs = _generate_fastq_with_casava(dname, config)
             # Merge demultiplexing results into a single Unaligned folder
             utils.merge_demux_results(dname)
             #Move the demultiplexing results
@@ -268,7 +268,12 @@ def process_all(*args, **kwargs):
 def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
     """Extract the top N=25 barcodes from the undetermined indices output
     """
-    infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*", "*_R1_*.fastq.gz")
+
+    #If this is a single sample on a single lane
+    if re.search("0bp$", unaligned_dir):
+        infile_glob = os.path.join(unaligned_dir, "Project*", "Sample*","*_R[2-3]_*.fastq.gz")
+    else:
+        infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*", "*_R1_*.fastq.gz")
     infiles = glob.glob(infile_glob)
 
     # Only run as many simultaneous processes as number of cores specified in config
@@ -299,6 +304,13 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
             fh = open(metricfile, "w")
             cl = [config["program"]["extract_barcodes"], infile, lane,
                   '--nindex', 10]
+            #If needed, get indices from fastq raw sequeces starting at offset=0
+            if re.search("R2|R3", infile):
+                run_info = _get_read_configuration(fc_dir)
+                n_cycles = run_info[1]["NumCycles"]
+                cl.append("--1.7")
+                cl.append("-o 0")
+                cl.append("-b {}".format(n_cycles))
             p = subprocess.Popen([str(c) for c in cl], stdout=fh, stderr=fh)
             procs.append([p, fh, metricfile])
 
@@ -555,6 +567,11 @@ def _generate_fastq_with_casava_task(args):
         cl = ["make", "-j", str(num_cores)]
         if r1:
             cl.append("r1")
+            #make r2 (and r3) target fastq files if needed
+            if bp == 0 and _last_index_read(fc_dir) >= 2:
+                cl.append("r2")
+            if bp == 0 and _last_index_read(fc_dir) == 3:
+                cl.append("r3")
 
         logger2.info("Demultiplexing and converting bcl to fastq.gz")
         logger2.debug(cl)
@@ -576,6 +593,47 @@ def _generate_fastq_with_casava_task(args):
         finally:
             co.close()
             ce.close()
+        
+        #Move R2 (and R3) fastq files to Undetermined_idices. And rename second read to R2
+        if not r1 and bp == 0:
+            indices = [int(read.get("Number")) for read in _get_read_configuration(fc_dir) if read.get("IsIndexedRead","") == "Y"]
+            sample_glob = os.path.join(unaligned_dir, "Project*","Sample*")
+            sample_dirs = glob.glob(sample_glob)
+
+            for sample_dir in sample_dirs:
+                index_files = []
+                #All index fastq files in Sample dir
+                for index in indices:
+                    index_glob = os.path.join(sample_dir, "*_R{}_*.fastq.gz".format(index))
+                    index_files.extend(glob.glob(index_glob))
+                
+                #Move to Undetermined_idices dir
+                for index_file in index_files:
+                    lane = re.search(r'_L0*(\d+)_', index_file).group(1)
+                    undetermined_dir = os.path.join("Undetermined_indices","Sample_lane{}".format(lane))
+                    utils.safe_makedir(undetermined_dir)
+                    try:
+                        move(index_file, undetermined_dir)
+                    except OSError, e:
+                        logger2.error(
+                            "Failed moving file {} to {}, error code: {}".format(index_file,
+                                                                                 undetermined_dir,
+                                                                                 e))
+                        raise e
+                # Rename R3/R4 to R2
+                last_read = _expected_reads(fc_dir) 
+                if last_read > indices[-1]:
+                    source = glob.glob(os.path.join(sample_dir, "*_R{}_*.fastq.gz".format(last_read)))
+                    destination = [source_file.replace("_R{}_".format(last_read), "_R2_") for source_file in source]
+                    src_dst = dict(zip(source,destination))
+                    try:
+                        for src, dst in src_dst.iteritems():
+                            os.rename(src, dst)
+                    except OSError, e:
+                        logger2.error("Failed renaming {} to {}, error code: {}".format(source,
+                                                                                        destination,
+                                                                                        e))
+                        raise e
 
     logger2.debug("Done")
     return unaligned_dir
@@ -913,7 +971,7 @@ def _get_bases_mask(directory):
                         bm.append('I' + cycles)
                         index_size = index_size - int(cycles)
                 else:
-                    bm.append('N' + cycles)
+                    bm.append('Y' + cycles)
         base_masks[group]['base_mask'] = bm
     return base_masks
 
