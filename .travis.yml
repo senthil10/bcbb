@@ -18,7 +18,7 @@ install:
     - sudo rm -rf /dev/shm && sudo ln -s /run/shm /dev/shm
     - pip install numpy
     - pip install cython
-    - pip install pysam==0.7
+    - pip install --allow-external pysam==0.7
     - pip install python-dateutil
     - cd nextgen && python setup.py install
 
