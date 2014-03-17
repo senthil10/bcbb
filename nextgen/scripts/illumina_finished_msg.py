@@ -610,10 +610,12 @@ def _generate_fastq_with_casava_task(args):
                 #Move to Undetermined_idices dir
                 for index_file in index_files:
                     lane = re.search(r'_L0*(\d+)_', index_file).group(1)
+                    read_number = re.search(r'_R(\d)_', index_file).group(1)
                     undetermined_dir = os.path.join("Undetermined_indices","Sample_lane{}".format(lane))
+                    renamed_file = re.sub("_R[2|3]_","_I{}_".format(int(read_number)-1), os.path.basename(index_file))
                     utils.safe_makedir(undetermined_dir)
                     try:
-                        move(index_file, undetermined_dir)
+                        move(index_file, os.path.join(undetermined_dir, renamed_file))
                     except OSError, e:
                         logger2.error(
                             "Failed moving file {} to {}, error code: {}".format(index_file,
