@@ -196,7 +196,7 @@ def process_second_read(*args, **kwargs):
     if kwargs.get("casava", False):
         if not kwargs.get("no_casava_processing", False):
             logger2.info("Generating fastq.gz files for {:s}".format(dname))
-            unaligned_dirs = _generate_fastq_with_casava(dname, config)
+            _generate_fastq_with_casava(dname, config)
             # Merge demultiplexing results into a single Unaligned folder
             utils.merge_demux_results(dname)
             #Move the demultiplexing results
@@ -561,7 +561,7 @@ def _generate_fastq_with_casava_task(args):
             co.close()
             ce.close()
 
-   # Go to <Unaligned> folder
+    # Go to <Unaligned> folder
     with utils.chdir(unaligned_dir):
         # Perform make
         cl = ["make", "-j", str(num_cores)]
@@ -610,10 +610,12 @@ def _generate_fastq_with_casava_task(args):
                 #Move to Undetermined_idices dir
                 for index_file in index_files:
                     lane = re.search(r'_L0*(\d+)_', index_file).group(1)
+                    read_number = re.search(r'_R(\d)_', index_file).group(1)
                     undetermined_dir = os.path.join("Undetermined_indices","Sample_lane{}".format(lane))
+                    renamed_file = re.sub("_R[2|3]_","_I{}_".format(int(read_number)-1), os.path.basename(index_file))
                     utils.safe_makedir(undetermined_dir)
                     try:
-                        move(index_file, undetermined_dir)
+                        move(index_file, os.path.join(undetermined_dir, renamed_file))
                     except OSError, e:
                         logger2.error(
                             "Failed moving file {} to {}, error code: {}".format(index_file,
@@ -954,24 +956,34 @@ def _get_bases_mask(directory):
         index_size = index_size
         group = index_size
         bm = []
+        per_index_size = index_size / (int(_last_index_read(directory)) - 1)
+
         for read in runsetup:
             cycles = read['NumCycles']
             if read['IsIndexedRead'] == 'N':
                 bm.append('Y' + cycles)
             else:
-                if index_size > 0:
-                    if index_size < int(cycles):
-                        m = 'I' + str(index_size) + 'N'
-                        if int(cycles) - index_size > 1:
-                            bm.append(m + str(int(cycles) - index_size))
-                        else:
-                            bm.append(m)
-                        index_size = 0
-                    elif index_size >= int(cycles):
+                # Y(,Y)
+                if group == 0:
+                    bm.append('Y'+ cycles)
+                    continue
+                # I_iN_y(,I_iN_y) or I(,I)
+                if index_size > int(cycles):
+                    i_remainder = int(cycles) - per_index_size
+                    if i_remainder > 0:
+                        bm.append('I' + str(per_index_size) + 'N' + str(i_remainder))
+                    else:
                         bm.append('I' + cycles)
-                        index_size = index_size - int(cycles)
+                # I_iN_y(,N) or I(,N)
                 else:
-                    bm.append('Y' + cycles)
+                    if index_size > 0:
+                        to_mask = "I" + str(index_size)
+                        if index_size < int(cycles):
+                           to_mask = to_mask + 'N' + str(int(cycles) - index_size)
+                        bm.append(to_mask)
+                        index_size = 0
+                    else:
+                        bm.append('N' + cycles)
         base_masks[group]['base_mask'] = bm
     return base_masks
 
@@ -1269,7 +1281,8 @@ class TestCheckpoints(unittest.TestCase):
                 s1 = sample.format(index='ACGTAG').split(',')
                 s2 = sample.format(index='ACGTACGT').split(',')
                 s3 = sample.format(index='ACGTACGT-ACGTACGT').split(',')
-                rows = [s1, s2, s3]
+                s4 = sample.format(index='ACGTAG-ACGTAG').split(',')
+                rows = [s1, s2, s3, s4]
             elif index_info == 'no_index':
                 s1 = sample.format(index='').split(',')
                 rows = [s1]
@@ -1468,18 +1481,19 @@ class TestCheckpoints(unittest.TestCase):
         samplesinfo = os.path.join(self.rootdir, str(flowcell_id) + '.csv')
         #Test simple index
         self._samplesinfo(samplesinfo)
-        self.assertEqual(_get_bases_mask(self.rootdir)[6]['base_mask'], ['Y101', 'I6N', 'Y101'])
+        self.assertEqual(_get_bases_mask(self.rootdir)[6]['base_mask'], ['Y101', 'I6N1', 'Y101'])
         #Test mixed indexes
         self._runinfo(runinfo, bases_mask='Y101,I8,I8,Y101')
         self._samplesinfo(samplesinfo, index_info='mixed_index')
         masks = _get_bases_mask(self.rootdir)
         self.assertEqual(masks[6]['base_mask'], ['Y101', 'I6N2', 'N8', 'Y101'])
         self.assertEqual(masks[8]['base_mask'], ['Y101', 'I8', 'N8', 'Y101'])
+        self.assertEqual(masks[12]['base_mask'], ['Y101', 'I6N2', 'I6N2', 'Y101'])
         self.assertEqual(masks[16]['base_mask'], ['Y101', 'I8', 'I8', 'Y101'])
         #Test no index
-        self._runinfo(runinfo, bases_mask='Y101,Y101')
+        self._runinfo(runinfo, bases_mask='Y101,I8,I8,Y101')
         self._samplesinfo(samplesinfo, index_info='no_index')
-        self.assertEqual(_get_bases_mask(self.rootdir)[0]['base_mask'], ['Y101', 'Y101'])
+        self.assertEqual(_get_bases_mask(self.rootdir)[0]['base_mask'], ['Y101', 'Y8', 'Y8','Y101'])
 
 
 
