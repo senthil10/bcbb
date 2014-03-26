@@ -945,7 +945,7 @@ def _get_bases_mask(directory):
         samplesheet = []
         [samplesheet.append(read) for read in ss]
         for r in samplesheet:
-            index_length = len(r['Index'].replace('-', ''))
+            index_length = len(r['Index'].replace('-', '').replace('NoIndex', ''))
             if not base_masks.has_key(index_length):
                 base_masks[index_length] = {'base_mask': [],
                                             'samples': {'fieldnames': ss.fieldnames, 'samples':[]}}
@@ -1285,7 +1285,8 @@ class TestCheckpoints(unittest.TestCase):
                 rows = [s1, s2, s3, s4]
             elif index_info == 'no_index':
                 s1 = sample.format(index='').split(',')
-                rows = [s1]
+                s2 = sample.format(index='NoIndex').split(',')
+                rows = [s1,s2]
             ss.writerows([{k:v for k,v in izip(fn,r)} for r in rows])
         return outfile
 
@@ -1493,8 +1494,9 @@ class TestCheckpoints(unittest.TestCase):
         #Test no index
         self._runinfo(runinfo, bases_mask='Y101,I8,I8,Y101')
         self._samplesinfo(samplesinfo, index_info='no_index')
-        self.assertEqual(_get_bases_mask(self.rootdir)[0]['base_mask'], ['Y101', 'Y8', 'Y8','Y101'])
-
+        masks = _get_bases_mask(self.rootdir)
+        self.assertEqual(masks[0]['base_mask'], ['Y101', 'Y8', 'Y8','Y101'])
+        self.assertEqual(len(masks), 1)
 
 
 
