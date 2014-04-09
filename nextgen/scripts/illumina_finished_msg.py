@@ -595,8 +595,8 @@ def _generate_fastq_with_casava_task(args):
             ce.close()
         
         #Move R2 (and R3) fastq files to Undetermined_idices. And rename second read to R2
-        if not r1 and bp == 0:
-            indices = [int(read.get("Number")) for read in _get_read_configuration(fc_dir) if read.get("IsIndexedRead","") == "Y"]
+        indices = [int(read.get("Number")) for read in _get_read_configuration(fc_dir) if read.get("IsIndexedRead","") == "Y"]
+        if not r1 and bp == 0 and bool(indices):
             sample_glob = os.path.join(unaligned_dir, "Project*","Sample*")
             sample_dirs = glob.glob(sample_glob)
 
