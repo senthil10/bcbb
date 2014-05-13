@@ -35,7 +35,7 @@ import re
 import csv
 from shutil import copyfile, move
 from itertools import izip
-
+from copy import deepcopy
 import logbook
 
 from bcbio.solexa import samplesheet
@@ -271,7 +271,7 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
 
     #If this is a single sample on a single lane
     if re.search("0bp$", unaligned_dir):
-        infile_glob = os.path.join(unaligned_dir, "Project*", "Sample*","*_R[2-3]_*.fastq.gz")
+        infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*","*_I[1-2]_*.fastq.gz")
     else:
         infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*", "*_R1_*.fastq.gz")
     infiles = glob.glob(infile_glob)
@@ -305,12 +305,13 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
             cl = [config["program"]["extract_barcodes"], infile, lane,
                   '--nindex', 10]
             #If needed, get indices from fastq raw sequeces starting at offset=0
-            if re.search("R2|R3", infile):
+            if re.search("I1|I2", infile):
                 run_info = _get_read_configuration(fc_dir)
                 n_cycles = run_info[1]["NumCycles"]
                 cl.append("--1.7")
                 cl.append("-o 0")
                 cl.append("-b {}".format(n_cycles))
+            logger2.info(" ".join([str(c) for c in cl]))
             p = subprocess.Popen([str(c) for c in cl], stdout=fh, stderr=fh)
             procs.append([p, fh, metricfile])
 
@@ -487,6 +488,7 @@ def _generate_fastq_with_casava_task(args):
     fc_dir = args.get('fc_dir')
     config = args.get('config')
     r1 = args.get('r1', False)
+    idx_only = args.get('idx_only', False)
     ss = 'SampleSheet_{bp}bp.csv'.format(bp=str(bp))
     unaligned_folder = 'Unaligned_{bp}bp'.format(bp=str(bp))
     out_file = 'configureBclToFastq_{bp}bp.out'.format(bp=str(bp))
@@ -532,8 +534,10 @@ def _generate_fastq_with_casava_task(args):
 
     if base_mask is not None:
         cl.extend(["--use-bases-mask", ','.join(base_mask)])
-
     if r1:
+        cl.append("--force")
+
+    if r1 or idx_only:
         #Create separate samplesheet and folder
         with open(os.path.join(fc_dir, ss), 'w') as fh:
             samplesheet = csv.DictWriter(fh, fieldnames=samples['fieldnames'], dialect='excel')
@@ -567,11 +571,6 @@ def _generate_fastq_with_casava_task(args):
         cl = ["make", "-j", str(num_cores)]
         if r1:
             cl.append("r1")
-            #make r2 (and r3) target fastq files if needed
-            if bp == 0 and _last_index_read(fc_dir) >= 2:
-                cl.append("r2")
-            if bp == 0 and _last_index_read(fc_dir) == 3:
-                cl.append("r3")
 
         logger2.info("Demultiplexing and converting bcl to fastq.gz")
         logger2.debug(cl)
@@ -593,10 +592,11 @@ def _generate_fastq_with_casava_task(args):
         finally:
             co.close()
             ce.close()
-        
-        #Move R2 (and R3) fastq files to Undetermined_idices. And rename second read to R2
+ 
+        #Move R1 (and R2) fastq files to Undetermined_idices. And rename to I1 (and I2)
         indices = [int(read.get("Number")) for read in _get_read_configuration(fc_dir) if read.get("IsIndexedRead","") == "Y"]
-        if not r1 and bp == 0 and bool(indices):
+        indices = range(1, len(indices) + 1)
+        if idx_only and bool(indices):
             sample_glob = os.path.join(unaligned_dir, "Project*","Sample*")
             sample_dirs = glob.glob(sample_glob)
 
@@ -612,7 +612,7 @@ def _generate_fastq_with_casava_task(args):
                     lane = re.search(r'_L0*(\d+)_', index_file).group(1)
                     read_number = re.search(r'_R(\d)_', index_file).group(1)
                     undetermined_dir = os.path.join("Undetermined_indices","Sample_lane{}".format(lane))
-                    renamed_file = re.sub("_R[2|3]_","_I{}_".format(int(read_number)-1), os.path.basename(index_file))
+                    renamed_file = re.sub("_R[1|2]_","_I{}_".format(int(read_number)), os.path.basename(index_file))
                     utils.safe_makedir(undetermined_dir)
                     try:
                         move(index_file, os.path.join(undetermined_dir, renamed_file))
@@ -622,21 +622,7 @@ def _generate_fastq_with_casava_task(args):
                                                                                  undetermined_dir,
                                                                                  e))
                         raise e
-                # Rename R3/R4 to R2
-                last_read = _expected_reads(fc_dir) 
-                if last_read > indices[-1]:
-                    source = glob.glob(os.path.join(sample_dir, "*_R{}_*.fastq.gz".format(last_read)))
-                    destination = [source_file.replace("_R{}_".format(last_read), "_R2_") for source_file in source]
-                    src_dst = dict(zip(source,destination))
-                    try:
-                        for src, dst in src_dst.iteritems():
-                            os.rename(src, dst)
-                    except OSError, e:
-                        logger2.error("Failed renaming {} to {}, error code: {}".format(source,
-                                                                                        destination,
-                                                                                        e))
-                        raise e
-
+ 
     logger2.debug("Done")
     return unaligned_dir
 
@@ -650,9 +636,27 @@ def _generate_fastq_with_casava(fc_dir, config, r1=False):
 
     base_masks = _get_bases_mask(fc_dir)
     num_cores = config["algorithm"].get("num_cores", 1)
+ 
+    # Prepare a configureBclToFastq call with 0bp index masks
+    base_masks2 = deepcopy(base_masks)
+    no_idx = [{k:v} for k, v in base_masks2.iteritems() if k is 0]
+
+    if no_idx and r1:
+        no_idx = no_idx[0]
+        new_mask = no_idx[0]['base_mask']
+
+        for i, read in enumerate(_get_read_configuration(fc_dir)):
+            if read.get("IsIndexedRead", "") == "N":
+                new_mask[i] = new_mask[i].replace("Y","N")
+            else:
+                new_mask[i] = new_mask[i].replace("N","Y")
+
+        no_idx[0]['base_mask'] = new_mask
+        _generate_fastq_with_casava_task({'bp': 0, 'samples': no_idx[0], 'fc_dir':fc_dir, 'config':config, 'r1':False, 'idx_only':True})
+
     #Prepare the list of arguments to call configureBclToFastq
     args_list = []
-    [args_list.append({'bp': k, 'samples': v, 'fc_dir':fc_dir, 'config':config, 'r1':r1}) \
+    [args_list.append({'bp': k, 'samples': v, 'fc_dir':fc_dir, 'config':config, 'r1':r1, 'idx_only':False}) \
                         for k, v in base_masks.iteritems()]
 
     unaligned_dirs = map(_generate_fastq_with_casava_task, args_list)
@@ -963,10 +967,6 @@ def _get_bases_mask(directory):
             if read['IsIndexedRead'] == 'N':
                 bm.append('Y' + cycles)
             else:
-                # Y(,Y)
-                if group == 0:
-                    bm.append('Y'+ cycles)
-                    continue
                 # I_iN_y(,I_iN_y) or I(,I)
                 if index_size > int(cycles):
                     i_remainder = int(cycles) - per_index_size
