@@ -255,16 +255,7 @@ def _run_fastq_screen(fastq1, fastq2, config):
     utils.safe_makedir(out_base)
     program = config.get("program", {}).get("fastq_screen", "fastq_screen")
 
-    if fastq2 is not None:
-        if os.path.exists(fastq2):
-        # paired end
-            cl = [program, "--outdir", out_base, "--subset", "2000000", \
-            "--multilib", fastq1, "--paired", fastq2]
-        else:
-            cl = [program, "--outdir", out_base, "--subset", "2000000", \
-            "--multilib", fastq1]
-    else:
-        cl = [program, "--outdir", out_base, "--subset", "2000000", \
+    cl = [program, "--outdir", out_base, "--subset", "2000000", \
         "--multilib", fastq1]
 
     if config["algorithm"].get("quality_format", "").lower() == 'illumina':
@@ -396,23 +387,23 @@ def _lane_stats(cur_name, work_dir):
 
 # Parser for the RTA-generated quality-metrics
 class RTAQCMetrics:
-    
+
     def __init__(self, base_dir):
         self._dir = base_dir
         self._configuration = IlluminaConfiguration(base_dir)
         self._metrics_path = os.path.join(base_dir,"Data","reports","Summary")
         assert os.path.exists(self._metrics_path), "The RTA QC metrics folder %s does not exist" % self._metrics_path
-        
+
         # Assert that the readN.xml qc metrics files exist
         self._metric_files = []
         for read in self._configuration.reads().keys():
             qc_file = os.path.join(self._metrics_path,"read%s.xml" % read)
             assert os.path.exists(qc_file), "The RTA QC metrics file %s does not exist" % qc_file
             self._metric_files.append(qc_file)
-        
+
         # Parse the XML files
         self.readSummaries()
-         
+
     @staticmethod
     def metrics():
         return [
@@ -429,10 +420,10 @@ class RTAQCMetrics:
                 ['prc_aligned', 'PrcAlign', False],
                 ['prc_aligned_sd', 'PrcAlignSD', False]
             ]
-    
+
     def configuration(self):
         return self._configuration
-    
+
     # getQCstats() is probably the method you usually want to call
     def getQCstats(self):
         qc_stats = {}
@@ -458,7 +449,7 @@ class RTAQCMetrics:
     def getSingleLaneMetric(self, root, metric, lane, clu_dens = False):
         m = self.getLaneMetric(root, metric, clu_dens, lane)
         return m[lane]
-    
+
     def getAllLaneMetrics(self, metric, clu_dens):
         metrics = {}
         for read, root in self._qc_roots.items():
@@ -467,7 +458,7 @@ class RTAQCMetrics:
 
     def getLaneMetric(self, root, metric, clu_dens, lane=None):
         if clu_dens: densRatio = float(root.get("densityRatio"))
-        lanes = root.findall("Lane")    
+        lanes = root.findall("Lane")
         m = {}
         for l in lanes:
             k = l.get("key")
@@ -475,7 +466,7 @@ class RTAQCMetrics:
                 continue
             val = float(l.get(metric))
             m[k] = val
-            if clu_dens: 
+            if clu_dens:
                 m[k] = str(int(round((densRatio * val)/1000))) + 'K'
         return m
 
@@ -492,7 +483,7 @@ _section_template = r"""
     \hline
     % for label, val, extra in summary_table:
         %if label is not None:
-            ${label} & ${val} & ${extra} \\ 
+            ${label} & ${val} & ${extra} \\
         %else:
             \hline
         %endif
@@ -522,10 +513,10 @@ _section_template = r"""
     \centering
     \begin{tabular}{|p{8cm}rrp{4cm}|}
     \hline
-    Sequence & Count & Percent & Match \\ 
+    Sequence & Count & Percent & Match \\
     \hline
     % for seq, count, percent, match in overrep:
-        \texttt{${seq}} & ${count} & ${"%.2f" % float(percent)} & ${match} \\ 
+        \texttt{${seq}} & ${count} & ${"%.2f" % float(percent)} & ${match} \\
     % endfor
     \hline
     \end{tabular}
