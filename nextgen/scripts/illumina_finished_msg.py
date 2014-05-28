@@ -271,7 +271,7 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
 
     #If this is a single sample on a single lane
     if re.search("0bp$", unaligned_dir):
-        infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*","*_I[1-2]_*.fastq.gz")
+        infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*","*_I1_*.fastq.gz")
     else:
         infile_glob = os.path.join(unaligned_dir, "Undetermined_indices", "Sample_lane*", "*_R1_*.fastq.gz")
     infiles = glob.glob(infile_glob)
@@ -303,14 +303,25 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
                                                             "undetermined_indices_metrics"))
             fh = open(metricfile, "w")
             cl = [config["program"]["extract_barcodes"], infile, lane,
-                  '--nindex', 10]
+                  '-n', 10]
+
             #If needed, get indices from fastq raw sequeces starting at offset=0
-            if re.search("I1|I2", infile):
+            if re.search('I1_\S*.fastq.gz$', infile):
+                cl = [config["program"]["extract_barcodes"], infile]
+                
+                # If dual-indexed
+                infile2 = infile.replace('_I1_','_I2_')
+                if os.path.isfile(infile2):
+                    cl.append(infile2)
+
                 run_info = _get_read_configuration(fc_dir)
                 n_cycles = run_info[1]["NumCycles"]
+                cl.append(lane)
+                cl.append('-n 20')
                 cl.append("--1.7")
                 cl.append("-o 0")
                 cl.append("-b {}".format(n_cycles))
+
             logger2.info(" ".join([str(c) for c in cl]))
             p = subprocess.Popen([str(c) for c in cl], stdout=fh, stderr=fh)
             procs.append([p, fh, metricfile])
@@ -592,7 +603,7 @@ def _generate_fastq_with_casava_task(args):
         finally:
             co.close()
             ce.close()
- 
+
         #Move R1 (and R2) fastq files to Undetermined_idices. And rename to I1 (and I2)
         indices = [int(read.get("Number")) for read in _get_read_configuration(fc_dir) if read.get("IsIndexedRead","") == "Y"]
         indices = range(1, len(indices) + 1)
@@ -606,7 +617,7 @@ def _generate_fastq_with_casava_task(args):
                 for index in indices:
                     index_glob = os.path.join(sample_dir, "*_R{}_*.fastq.gz".format(index))
                     index_files.extend(glob.glob(index_glob))
-                
+
                 #Move to Undetermined_idices dir
                 for index_file in index_files:
                     lane = re.search(r'_L0*(\d+)_', index_file).group(1)
@@ -622,7 +633,7 @@ def _generate_fastq_with_casava_task(args):
                                                                                  undetermined_dir,
                                                                                  e))
                         raise e
- 
+
     logger2.debug("Done")
     return unaligned_dir
 
