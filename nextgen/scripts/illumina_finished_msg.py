@@ -317,8 +317,9 @@ def extract_top_undetermined_indexes(fc_dir, unaligned_dir, config):
                 run_info = _get_read_configuration(fc_dir)
                 n_cycles = run_info[1]["NumCycles"]
                 cl.append(lane)
-                cl.append('-n 20')
+                cl.append("-n 10")
                 cl.append("--1.7")
+                cl.append("--db")
                 cl.append("-o 0")
                 cl.append("-b {}".format(n_cycles))
 
