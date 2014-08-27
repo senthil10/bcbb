@@ -242,7 +242,7 @@ def _run_fastqc(bam_file, config):
                               os.path.splitext(os.path.basename(bam_file))[0])
     if not os.path.exists(fastqc_out):
         cl = [config.get("program", {}).get("fastqc", "fastqc"),
-              "-o", out_base, "-f", "bam", bam_file]
+              "--extract", "-o", out_base, "-f", "bam", bam_file]
         subprocess.check_call(cl)
 
     if os.path.exists("%s.zip" % fastqc_out):
