@@ -240,6 +240,7 @@ def _run_fastqc(bam_file, config):
     utils.safe_makedir(out_base)
     fastqc_out = os.path.join(out_base, "%s_fastqc" %
                               os.path.splitext(os.path.basename(bam_file))[0])
+
     if not os.path.exists(fastqc_out):
         cl = [config.get("program", {}).get("fastqc", "fastqc"),
               "--extract", "-o", out_base, "-f", "bam", bam_file]
@@ -364,6 +365,7 @@ def _calc_fastq_stats(analysis_dir, lane_num, fc_date):
     stats = dict()
     fastqc_dirs = glob.glob(os.path.join(analysis_dir, "fastqc",
                                          "%s_%s*" % (lane_num, fc_date)))
+    fastqc_dirs = [fqD for fqD in fastqc_dirs if not fqD.endswith('.html')]
     if len(fastqc_dirs) > 0:
         parser = FastQCParser(sorted(fastqc_dirs)[-1])
         fastqc_stats, _ = parser.get_fastqc_summary()
